@@ -1194,6 +1194,114 @@ class NpcPowerDialog(tk.Toplevel):
         self.lift()
 
 
+# ============================================================ organizar poderes
+class OrganizeDialog(tk.Toplevel):
+    """Escolhe a ordem dos poderes/boosts/xtreme e aplica a tabela padrão de requisitos e tiers."""
+
+    def __init__(self, app, char: pj.Character):
+        super().__init__(app)
+        self.app, self.char = app, char
+        self.title(f"Organizar poderes de {char.display}")
+        self.configure(bg=PANEL)
+        fit(self, 1080, 760)
+        self.transient(app)
+        self.rows = [[n, d, k, lv] for n, d, k, lv in ops.power_talents(char)]  # [talento, nome, tipo, nível atual]
+        self.plan = None
+        ttk.Label(self, style="Dim.TLabel", wraplength=1040, justify="left", padding=(12, 10, 12, 0), text=(
+            "A ordem da lista define o número de cada poder (1º Poder, 2º Poder... 1º Boost...). Use Subir/Descer e, se preciso, troque o tipo. "
+            "Ao aplicar, o requisito de nível (%..._req) e os tiers de cada talento são reescritos pela tabela padrão dos mods.")).pack(anchor="w")
+        b = ttk.Frame(self, padding=12)
+        b.pack(fill="x", side="bottom")
+        mid = ttk.Panedwindow(self, orient="horizontal")
+        mid.pack(fill="both", expand=True, padx=12, pady=8)
+        lf = ttk.Frame(mid)
+        cols = ("slot", "nome", "talento", "antes", "depois")
+        self.tv = ttk.Treeview(lf, columns=cols, show="headings", selectmode="browse", height=12)
+        for c, title, w in zip(cols, ("Fica como", "Poder", "Talento", "Nível hoje", "Nível novo"), (90, 190, 130, 70, 70)):
+            self.tv.heading(c, text=title)
+            self.tv.column(c, width=w, stretch=c == "nome")
+        self.tv.pack(fill="both", expand=True)
+        bf = ttk.Frame(lf)
+        bf.pack(fill="x", pady=6)
+        ttk.Button(bf, text="Subir", command=lambda: self.move(-1)).pack(side="left")
+        ttk.Button(bf, text="Descer", command=lambda: self.move(1)).pack(side="left", padx=6)
+        for kind in ("power", "boost", "xtreme"):
+            ttk.Button(bf, text=f"É {ops.KIND_LABEL[kind]}", command=lambda k=kind: self.set_kind(k)).pack(side="left", padx=(0, 6))
+        self.rescale = tk.BooleanVar(value=True)
+        self.reorder = tk.BooleanVar(value=True)
+        ttk.Checkbutton(lf, text="Reescalar dano/custo quando o número de níveis do poder mudar", variable=self.rescale, command=self.preview).pack(anchor="w")
+        ttk.Checkbutton(lf, text="Reordenar os talentos no arquivo nessa ordem", variable=self.reorder, command=self.preview).pack(anchor="w")
+        mid.add(lf, weight=2)
+        self.out = _text(mid)
+        mid.add(self.out, weight=3)
+        ttk.Button(b, text="Fechar", command=self.destroy).pack(side="right")
+        self.apply_btn = ttk.Button(b, text="Aplicar e compilar", style="Accent.TButton", command=self.apply)
+        self.apply_btn.pack(side="right", padx=8)
+        self.fill()
+
+    def order(self):
+        return [(r[0], r[2]) for r in self.rows]
+
+    def fill(self, select: int | None = None):
+        self.tv.delete(*self.tv.get_children())
+        try:
+            _, slots = ops.slot_tables(self.order())
+        except ValueError:
+            slots = {}
+        for i, (name, desc, kind, lv) in enumerate(self.rows):
+            s = slots.get(name.lower())
+            self.tv.insert("", "end", iid=str(i), values=(s[2] if s else ops.KIND_LABEL[kind] + " ?", desc or name, name, lv, s[0][0][1] if s else "-"))
+        if select is not None and self.rows:
+            self.tv.selection_set(str(max(0, min(select, len(self.rows) - 1))))
+        self.preview()
+
+    def sel(self) -> int | None:
+        s = self.tv.selection()
+        return int(s[0]) if s else None
+
+    def move(self, d: int):
+        i = self.sel()
+        if i is None or not 0 <= i + d < len(self.rows):
+            return
+        self.rows[i], self.rows[i + d] = self.rows[i + d], self.rows[i]
+        self.fill(i + d)
+
+    def set_kind(self, kind: str):
+        i = self.sel()
+        if i is not None:
+            self.rows[i][2] = kind
+            self.fill(i)
+
+    def preview(self):
+        self.plan = None
+        self.apply_btn.state(["disabled"])
+        if not self.rows:
+            return show_plan(self.out, "Este personagem não tem talentos com poder.")
+        try:
+            self.plan = ops.organize_plan(self.char, self.order(), self.rescale.get(), self.reorder.get())
+        except Exception as e:
+            return show_plan(self.out, f"NÃO foi possível montar o plano: {e}")
+        show_plan(self.out, self.plan.describe(self.char.proj))
+        if not self.plan.errors:
+            self.apply_btn.state(["!disabled"])
+
+    def apply(self):
+        if not self.plan or self.plan.errors:
+            return
+        if dirty_tabs(self.app, [self.char.talents_path]):
+            return messagebox.showwarning("Salve antes", "O arquivo de talentos está aberto com alterações não salvas.", parent=self)
+        if not messagebox.askyesno("Organizar poderes", "Reescrever requisitos e tiers no arquivo de talentos?\nO original fica nos backups.", parent=self):
+            return
+        written = transfer.apply_plan(self.char.proj, self.plan)
+        self.char.proj._vars = None
+        reload_tabs(self.app, written)
+        self.app.fill_characters()
+        self.app.status(f"Poderes de {self.char.display} organizados: requisitos e tiers reescritos (com backup)")
+        self.rows = [[n, d, k, lv] for (n, d, _k, lv), (_, _, k, _) in zip(ops.power_talents(self.char), self.rows)]
+        self.fill()
+        show_plan(self.out, "FEITO: requisitos e tiers gravados em " + self.char.proj.rel(self.char.talents_path) + "\n\n" + self.out.get("1.0", "end"))
+
+
 # ================================================================ clonar personagem
 class CloneDialog(tk.Toplevel):
     def __init__(self, app, src=None):

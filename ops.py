@@ -759,3 +759,206 @@ def delete_created(char: Character, remove_files: bool) -> dict:
             if os.path.isfile(p):
                 os.replace(p, os.path.join(gone, os.path.basename(p)))
     return out
+
+
+# ================================================== organizar poderes (requisitos e tiers)
+# Tabelas padrão da comunidade: requisito = [(nível do poder, nível do personagem)], tiers = [(custo, quantidade, hard?)]
+_T = lambda *t: [(c, n, False) for c, n in t] + [(3, 4, True), (4, 1, True)]
+SLOT_TABLES = {
+    "padrao": {  # até 5 poderes + 2 boosts + xtreme
+        "power": [
+            ([(1, 1), (5, 13), (6, 16), (9, 25), (10, 28), (14, 52), (15, 72)], _T((1, 5), (2, 4), (3, 1))),
+            ([(1, 5), (5, 14), (6, 17), (9, 26), (10, 29), (14, 53), (15, 73)], _T((1, 5), (2, 4), (3, 1))),
+            ([(1, 10), (3, 13), (4, 16), (7, 25), (8, 28), (12, 52), (13, 72)], _T((1, 3), (2, 4), (3, 1))),
+            ([(1, 17), (4, 26), (5, 29), (9, 53), (10, 73)], _T((2, 4), (3, 1))),
+            ([(1, 20), (3, 26), (4, 29), (8, 53), (9, 73)], _T((2, 3), (3, 1)))],
+        "boost": [
+            ([(1, 2), (5, 14), (6, 17), (9, 26), (10, 29), (14, 53), (15, 73)], _T((1, 5), (2, 4), (3, 1))),
+            ([(1, 14), (2, 17), (5, 26), (6, 29), (10, 53), (11, 73)], _T((1, 1), (2, 4), (3, 1)))]},
+    "estendido": {  # até 7 poderes + 3 boosts + xtreme (máximo de 10 no total)
+        "power": [
+            ([(1, 1), (5, 13), (6, 16), (9, 25), (10, 28), (14, 52), (15, 72)], _T((1, 5), (2, 4), (3, 1))),
+            ([(1, 5), (5, 14), (6, 17), (9, 26), (10, 29), (14, 53), (15, 73)], _T((1, 5), (2, 4), (3, 1))),
+            ([(1, 10), (3, 13), (4, 16), (7, 25), (8, 28), (12, 52), (13, 72)], _T((1, 3), (2, 4), (3, 1))),
+            ([(1, 15), (2, 18), (5, 27), (6, 30), (10, 53), (11, 73)], _T((1, 1), (2, 4), (3, 1))),
+            ([(1, 17), (4, 26), (5, 29), (9, 53), (10, 73)], _T((2, 4), (3, 1))),
+            ([(1, 20), (3, 26), (4, 29), (8, 53), (9, 73)], _T((2, 3), (3, 1))),
+            ([(1, 23), (2, 26), (3, 29), (7, 53), (8, 73)], _T((2, 2), (3, 1)))],
+        "boost": [
+            ([(1, 2), (5, 14), (6, 17), (9, 26), (10, 29), (14, 53), (15, 73)], _T((1, 5), (2, 4), (3, 1))),
+            ([(1, 7), (4, 14), (5, 17), (8, 26), (9, 29), (13, 53), (14, 73)], _T((1, 4), (2, 4), (3, 1))),
+            ([(1, 14), (2, 17), (5, 26), (6, 29), (10, 53), (11, 73)], _T((1, 1), (2, 4), (3, 1)))]},
+}
+XTREME_SLOT = ([(1, 10), (8, 45)], [(2, 1, False), (0, 7, False)])
+KIND_LABEL = {"power": "Poder", "boost": "Boost", "xtreme": "Xtreme"}
+
+
+def talent_kind(t: Node) -> str:
+    ty, pw = (t.get("type") or "").lower(), (t.get("power") or "").lower()
+    if "xtreme" in ty or "xtreme" in pw:
+        return "xtreme"
+    return "boost" if ty == "boost" else "power"
+
+
+def power_talents(char: Character) -> list[tuple[str, str, str, str]]:
+    """[(talento, nome exibido, tipo detectado, nível de desbloqueio atual)] dos talentos com poder, na ordem do arquivo."""
+    out = []
+    if not char.talents_path:
+        return out
+    for t in char.proj.load(char.talents_path).children:
+        if t.name == "talent" and t.get("power"):
+            req = _req_var(t)
+            vals = [n for n in t.walk() if n.name == "talentvalue" and req and n.get("name", "").lower() == req.lower()]
+            first = min(vals, key=lambda n: int(n.get("level", "99") or 99)).get("value", "?") if vals else "?"
+            out.append((t.get("name", ""), t.get("descname", ""), talent_kind(t), first))
+    return out
+
+
+def _req_var(t: Node) -> str | None:
+    for lv in t.children:
+        if lv.name == "level":
+            for r in lv.children:
+                if r.name == "require" and (r.get("cat") or "").lower() == "level":
+                    m = VAR_RE.search(r.get("level", ""))
+                    return m.group(1) if m else None
+    return None
+
+
+def slot_tables(order: list[tuple[str, str]]) -> tuple[str, dict[str, tuple]]:
+    """order = [(talento, 'power'|'boost'|'xtreme')] na ordem desejada. Devolve (nome da tabela, {talento: (req, tiers, rótulo)})."""
+    powers = [t for t, k in order if k == "power"]
+    boosts = [t for t, k in order if k == "boost"]
+    xt = [t for t, k in order if k == "xtreme"]
+    mode = "padrao" if len(powers) <= 5 and len(boosts) <= 2 else "estendido"
+    tab = SLOT_TABLES[mode]
+    if len(powers) > len(tab["power"]) or len(boosts) > len(tab["boost"]) or len(xt) > 1:
+        raise ValueError(f"a regra cobre no máximo 7 poderes, 3 boosts e 1 xtreme (você tem {len(powers)}, {len(boosts)} e {len(xt)})")
+    res = {}
+    for i, t in enumerate(powers):
+        res[t.lower()] = tab["power"][i] + (f"{i + 1}º Poder",)
+    bt = tab["boost"]
+    if mode == "estendido" and len(boosts) == 2:
+        bt = [bt[0], bt[2]]  # a tabela do '2º boost' só vale quando há três
+    for i, t in enumerate(boosts):
+        res[t.lower()] = bt[i] + (f"{i + 1}º Boost",)
+    for t in xt:
+        res[t.lower()] = XTREME_SLOT + ("Xtreme",)
+    return mode, res
+
+
+def organize_plan(char: Character, order: list[tuple[str, str]], rescale: bool = True, reorder: bool = True) -> transfer.Plan:
+    proj = char.proj
+    plan = transfer.Plan()
+    plan.proj = plan.sproj = proj
+    try:
+        mode, slots = slot_tables(order)
+    except ValueError as e:
+        plan.errors.append(str(e))
+        return plan
+    root = proj.load(char.talents_path).clone()
+    talents = {t.get("name", "").lower(): t for t in root.children if t.name == "talent"}
+    notes = []
+    total = len(order)
+    plan.info.append(f"ORGANIZAR PODERES de {char.display}: tabela {'padrão (até 5 poderes + 2 boosts)' if mode == 'padrao' else 'estendida (até 7 poderes + 3 boosts)'}"
+                     f", {total} no total")
+    if total > 10:
+        plan.warnings.append(f"{total} poderes no total: acima de 10 o jogo trava para quem joga no teclado")
+    for name, _kind in order:
+        t = talents.get(name.lower())
+        if t is None:
+            plan.errors.append(f"talento '{name}' não existe no arquivo")
+            continue
+        req, tiers, label = slots[name.lower()]
+        new_max = req[-1][0]
+        tv = next((c for c in t.children if c.name == "talentvalues"), None)
+        if tv is None:
+            tv = Node("talentvalues")
+            t.children.insert(0, tv)
+        lv = next((c for c in t.children if c.name == "level"), None)
+        if lv is None:
+            lv = Node("level")
+            t.children.append(lv)
+        var = _req_var(t)
+        if not var:
+            var = f"{t.get('name')}_req"
+            rq = next((r for r in lv.children if r.name == "require" and (r.get("cat") or "").lower() == "level"), None)
+            if rq is None:
+                rq = Node("require", [["cat", "level"]])
+                lv.children.append(rq)
+            rq.set("level", f"%{var}")
+        # --- demais variáveis: reescala para o novo número de níveis ---------------
+        groups: dict[str, list[Node]] = {}
+        for n in tv.children:
+            if n.name == "talentvalue" and n.get("name"):
+                groups.setdefault(n.get("name"), []).append(n)
+        old_levels = [int(n.get("level")) for g, ns in groups.items() if g.lower() != var.lower() for n in ns if (n.get("level") or "").isdigit()]
+        old_max = max(old_levels) if old_levels else new_max
+        scaled = []
+        new_children = [c for c in tv.children if not (c.name == "talentvalue" and c.get("name"))]
+        new_children += [Node("talentvalue", [["level", str(l)], ["name", var], ["value", str(v)]]) for l, v in req]
+        for g, ns in groups.items():
+            if g.lower() == var.lower():
+                continue
+            if not rescale or old_max == new_max or len(ns) < 2 or not all((n.get("level") or "").isdigit() for n in ns):
+                new_children += ns
+                continue
+            # mesmos pontos e mesmos valores, só com o nível levado para a nova escala (1 continua 1, o último vira o novo máximo)
+            ns = sorted(ns, key=lambda n: int(n.get("level")))
+            placed: dict[int, Node] = {}
+            for n in ns:
+                c = n.clone()
+                nl = int(round(1 + (int(n.get("level")) - 1) * (new_max - 1) / max(old_max - 1, 1)))
+                c.set("level", str(max(1, min(new_max, nl))))
+                placed[int(c.get("level"))] = c
+            new_children += [placed[k] for k in sorted(placed)]
+            scaled.append(g)
+        tv.children[:] = new_children
+        # --- tiers --------------------------------------------------------------------
+        first_tier = next((i for i, c in enumerate(lv.children) if c.name == "tier"), 0)
+        rest = [c for c in lv.children if c.name != "tier"]
+        new_tiers = []
+        for cost, count, hard in tiers:
+            n = Node("tier", [["cost", str(cost)], ["count", str(count)]])
+            if hard:
+                n.attrs.append(["difficulty", "hard"])
+            new_tiers.append(n)
+        lv.children[:] = rest[:first_tier] + new_tiers + rest[first_tier:]
+        notes.append(f"{label}: {t.get('descname') or name} ({name})  desbloqueia no nível {req[0][1]}, {new_max} níveis de poder, "
+                     f"{len(tiers)} tiers" + (f"; valores reescalados de {old_max} para {new_max} níveis: {', '.join(scaled)}" if scaled else ""))
+    if plan.errors:
+        return plan
+    if reorder:
+        picked = [talents[n.lower()] for n, _ in order]
+        ids = {id(t) for t in picked}
+        first = next(i for i, c in enumerate(root.children) if id(c) in ids)
+        before = [c for c in root.children[:first] if id(c) not in ids]
+        after = [c for c in root.children[first:] if id(c) not in ids]
+        root.children[:] = before + picked + after
+        notes.append("talentos reordenados no arquivo: " + ", ".join(n for n, _ in order))
+    plan.changes.append(transfer.FileChange(char.talents_path, root, notes))
+    plan.warnings.append("os valores de dano e custo foram mantidos nos pontos equivalentes da curva; confira se os números finais fazem sentido para o novo lugar do poder")
+    return plan
+
+
+def _interp(defs: list[Node], pos: float) -> str | None:
+    pts = []
+    for d in defs:
+        try:
+            pts.append((int(d.get("level")), float(d.get("value"))))
+        except (TypeError, ValueError):
+            return None
+    if not pts:
+        return None
+    pts.sort()
+    if pos <= pts[0][0]:
+        v = pts[0][1]
+    elif pos >= pts[-1][0]:
+        v = pts[-1][1]
+    else:
+        v = pts[-1][1]
+        for (l0, v0), (l1, v1) in zip(pts, pts[1:]):
+            if l0 <= pos <= l1:
+                v = v0 + (v1 - v0) * (pos - l0) / (l1 - l0 or 1)
+                break
+    whole = all(abs(p[1] - round(p[1])) < 1e-9 for p in pts)
+    return str(int(round(v))) if whole else f"{v:.2f}".rstrip("0").rstrip(".")

@@ -655,6 +655,7 @@ class App(tk.Tk):
         m = tk.Menu(self, tearoff=0)
         m.add_command(label="Copiar poder para outro personagem...", accelerator="Ctrl+T", command=self.copy_power)
         m.add_command(label="Converter poder de herói para NPC...", command=self.npc_power)
+        m.add_command(label="Organizar poderes (níveis e tiers)...", command=self.organize_powers)
         m.add_command(label="Mixer de animações...", command=self.anim_mixer)
         m.add_command(label="Clonar personagem / criar novo mod...", command=self.clone_character)
         m.add_command(label="Compilar personagem (salvar numa pasta)...", command=self.export_character)
@@ -1145,6 +1146,7 @@ class App(tk.Tk):
             m.add_command(label="Copiar um poder ou move deste personagem...", command=lambda: self.copy_power(act[1]))
             m.add_command(label="Receber um poder de outro personagem...", command=lambda: self.copy_power(None, None, act[1]))
             m.add_separator()
+            m.add_command(label="Organizar poderes (níveis e tiers)...", command=lambda: self.organize_powers(act[1]))
             m.add_command(label="Mixer de animações...", command=lambda: self.anim_mixer(act[1]))
             m.add_command(label="Clonar este personagem / criar novo mod...", command=lambda: self.clone_character(act[1]))
             m.add_command(label="Compilar personagem (salvar numa pasta)...", command=lambda: self.export_character(act[1]))
@@ -1533,6 +1535,12 @@ class App(tk.Tk):
         self.tabs.add(w, text="NPCStat", image=th.dot(th.ERR_SOFT, 14, 7), compound="left")
         self.tabs.select(w)
         return w
+
+    def organize_powers(self, char=None):
+        char = char or self.selected_char()
+        if not char or not char.talents_path:
+            return self.status("Escolha um personagem (com arquivo de talentos) para organizar os poderes")
+        return extras.OrganizeDialog(self, char)
 
     def anim_mixer(self, char=None):
         return extras.AnimMixer(self, char or self.selected_char())
