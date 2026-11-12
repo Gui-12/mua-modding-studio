@@ -31,11 +31,13 @@ O app deve ficar dentro da pasta do mod/jogo, assim:
       data\  packages\  actors\  effects\  sounds\ ...     (arquivos do jogo/mod)
       tools\
           MUAStudio\               <- esta pasta (app.py, README.txt...)
-          animation Mix tools\     <- opcional: animationProducer.exe e sgOptimizer.exe em bin\
+              vendor\animation_tools\bin\   (ferramentas de animacao, ja incluidas)
 
 - Ao abrir, ele sobe pelas pastas ate achar a que contem "data" e "packages". Se nao achar,
   pergunta qual e a pasta do jogo.
-- "animation Mix tools" so e necessaria para o Mixer de animacoes e para importar animacoes
+- As ferramentas de animacao (animationProducer.exe e sgOptimizer.exe) vao junto em
+  vendornimation_toolsin\. O app usa essa copia; se ela faltar, procura em <jogo>	ools\*in.
+  Elas so sao necessarias para o Mixer de animacoes e para importar animacoes
   ao copiar poderes. Sem ela o resto funciona e o app avisa quando a ferramenta faria falta.
 
 

@@ -57,11 +57,18 @@ class AnimTools:
         self._enums: dict[str, dict[str, str]] = {}
 
     def _find_bin(self) -> str | None:
+        def ok(b):
+            return os.path.isfile(os.path.join(b, "animationProducer.exe")) and os.path.isfile(os.path.join(b, "sgOptimizer.exe"))
+        # 1) a cópia que acompanha o app (vendor/animation_tools/bin)
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", "animation_tools", "bin")
+        if ok(here):
+            return here
+        # 2) senão, qualquer ferramenta com bin/ dentro de <pasta do jogo>/tools
         tools = os.path.join(self.proj.root, "tools")
         if os.path.isdir(tools):
             for d in sorted(os.listdir(tools)):
                 b = os.path.join(tools, d, "bin")
-                if os.path.isfile(os.path.join(b, "animationProducer.exe")) and os.path.isfile(os.path.join(b, "sgOptimizer.exe")):
+                if ok(b):
                     return b
         return None
 
