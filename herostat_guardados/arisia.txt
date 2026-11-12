@@ -1,0 +1,60 @@
+   stats {
+ailevel = 1 ;
+autospend = support ;
+body = 7 ;
+characteranims = 57_arisia ;
+charactername = Arisia Rrab ;
+level = 1 ;
+menulocation = 55 ;
+mind = 12 ;
+moveset1 = moveset_flying ;
+name = Arisia ;
+playable = true ;
+powerstyle = ps_arisia ;
+scriptlevel = 3 ;
+skin = 5724 ;
+skin_01_name = Classic ;
+sounddir = arisia_m ;
+strength = 7 ;
+team = hero ;
+   StatEffect {
+   bolt = Bip01 R Hand ;
+   effect = char/arisia/special_aura_hand ;
+   menuonly = true ;
+   zoneonly = false ;
+   }
+
+   StatEffect {
+   bolt = Bip01 R Hand ;
+   effect = char/arisia/ability_fly_hand ;
+   fxlevel = 1 ;
+   menuonly = false ;
+   zoneonly = true ;
+   }
+
+   talent {
+   level = 1 ;
+   name = arisia_p1 ;
+   }
+
+   talent {
+   level = 1 ;
+   name = melee_moves ;
+   }
+
+   talent {
+   level = 1 ;
+   name = gl_trail ;
+   }
+
+   talent {
+   level = 1 ;
+   name = flight ;
+   }
+
+   talent {
+   level = 1 ;
+   name = fightstyle_default ;
+   }
+
+}
