@@ -2,6 +2,8 @@
 
 ### The All-in-One Modding IDE for Marvel: Ultimate Alliance (2006)
 
+**Version 1.1** · **Versão 1.1**
+
 An integrated modding environment designed to simplify, accelerate, and centralize the creation of mods and boosters for **Marvel: Ultimate Alliance (2006)**.
 
 **English** | [Português](#portugues)
@@ -21,6 +23,29 @@ The goal is to bring together all the essential tools needed for game modificati
 With MUA Modding Studio, you can transfer powers between characters, assign abilities to NPCs, copy fightmoves, edit character configurations, manage animations, and experiment with new gameplay possibilities.
 
 Instead of switching between multiple utilities and manually editing different game files, you can perform many of these tasks directly within one environment.
+
+## 🆕 What's New in Version 1.1
+
+### Create a Character from Scratch (new module)
+
+Open it from **Tools › Create character from scratch (wizard)...** or run `Run Character Creator.bat` on its own. It lives in the `creator/` folder, separate from the rest of the app.
+
+- **7-step wizard:** base character › identity (name, character number 0-255, sound bank) › skins & HUD (up to 6, with automatic skin hex-edit) › mannequin, loading screens and portrait › attributes (body/strength/mind, autospend, size, flight) › **powers** › review & create.
+- **Powers built through the interface, no code editing:** a *Power 1..N* list where each power keeps the original or learns a technique from any character; rename it (name, type, description); **fine-tune** with sliders in % of the original (damage, energy cost, duration...) showing the value at level 1 and at max level; damage type and knockback picked from lists; range, speed, count, piercing, charge time and projectile size/duration/explosion. The list order becomes the unlock order.
+- **Edit powers** of an existing character with the same interface.
+- **Insight viewer (Alchemy):** lists a character's skins, HUDs, mannequin, loading screens and icons and opens them in `insight.exe`. Files Insight cannot open are detected and only produce a warning.
+- **FAQ / Guide** with search, based on the MarvelMods guide *Creating a Character from Scratch*.
+- Everything created is tracked, so **Delete this created character** undoes it all.
+
+### Interface & Tools
+
+- New look with CustomTkinter (bundled): rounded buttons and cards, sharp on high-DPI screens.
+- **Light and dark themes**, switched instantly.
+- **Command palette** (`Ctrl+Shift+P`) to find any action, character sheet or file.
+- Status dots in the character list (in game / not in game / other game / created).
+- **Audio editor** for `.zsm`/`.zss` sound banks.
+
+---
 
 ## ✨ Key Features
 
@@ -123,6 +148,7 @@ Before using MUA Modding Studio, make sure the following dependencies are instal
 - Install and configure the appropriate **Alchemy version** compatible with the MUA modding tools.
 - The MUA modding utilities are already included with the application.
 - Alchemy is an external dependency and must be installed separately.
+- The character creator's viewer uses Alchemy's `insight.exe` (default: `C:\Alchemy\ArtistPack\insight\DX9\insight.exe`; another path can be chosen in the app).
 
 **Note:** Use the Alchemy version compatible with the tools included in your setup. The exact tested version should be specified in the project documentation.
 
@@ -205,6 +231,29 @@ A proposta é reunir todas as ferramentas essenciais para modificação do jogo 
 Com o MUA Modding Studio, você pode transferir poderes entre personagens, atribuir habilidades a NPCs, copiar fightmoves, editar configurações de personagens, gerenciar animações e experimentar novas possibilidades de gameplay.
 
 Em vez de alternar entre diversos utilitários e editar manualmente diferentes arquivos do jogo, você pode realizar várias dessas tarefas diretamente em um único ambiente.
+
+## 🆕 Novidades da Versão 1.1
+
+### Criar Personagem do Zero (módulo novo)
+
+Abra em **Ferramentas › Criar personagem do zero (assistente)...** ou rode `Run Character Creator.bat` sozinho. Fica na pasta `creator/`, separado do resto do app.
+
+- **Assistente em 7 etapas:** personagem-base › identidade (nome, número 0-255, banco de som) › skins e HUD (até 6, com hex-edit automático da skin) › mannequin, telas de loading e retrato › atributos (body/strength/mind, autospend, tamanho, voo) › **poderes** › revisão e criar.
+- **Poderes montados pela interface, sem mexer em código:** lista *Poder 1..N* em que cada poder mantém o original ou aprende a técnica de qualquer personagem; renomear (nome, tipo, descrição); **ajuste fino** com barras em % do original (dano, custo de energia, duração...) mostrando o valor no nível 1 e no máximo; tipo de dano e empurrão por escolha; alcance, velocidade, quantidade, atravessar inimigos, tempo de carga e tamanho/duração/explosão do projétil. A ordem da lista vira a ordem de liberação.
+- **Editar poderes** de um personagem que já existe, com a mesma interface.
+- **Visualizador no Insight (Alchemy):** lista skins, HUDs, mannequin, telas de loading e ícones de um personagem e abre no `insight.exe`. Arquivos que o Insight não consegue abrir são detectados e só geram um aviso.
+- **FAQ / Guia** com busca, baseado no guia *Creating a Character from Scratch* do MarvelMods.
+- Tudo o que é criado fica registrado: **Excluir este personagem criado** desfaz tudo.
+
+### Interface e Ferramentas
+
+- Visual novo com CustomTkinter (já incluído): botões e cartões arredondados, nítido em telas com DPI alto.
+- **Tema claro e escuro**, troca na hora.
+- **Paleta de comandos** (`Ctrl+Shift+P`) para achar qualquer ação, ficha ou arquivo.
+- Bolinhas de status na lista de personagens (no jogo / fora / outro jogo / criado).
+- **Editor de áudio** para os bancos de som `.zsm`/`.zss`.
+
+---
 
 ## ✨ Principais Funcionalidades
 
@@ -305,6 +354,7 @@ Antes de utilizar o MUA Modding Studio, certifique-se de que as seguintes depend
 - Instale e configure a **versão adequada do Alchemy**, compatível com as ferramentas de modding do MUA.
 - Os utilitários de modificação do MUA já estão incluídos na aplicação.
 - O Alchemy é uma dependência externa e precisa ser instalado separadamente.
+- O visualizador do criador de personagem usa o `insight.exe` do Alchemy (padrão: `C:\Alchemy\ArtistPack\insight\DX9\insight.exe`; dá para escolher outro caminho no app).
 
 **Observação:** Utilize a versão do Alchemy compatível com as ferramentas incluídas na sua configuração. A versão exata testada deverá ser informada na documentação do projeto.
 

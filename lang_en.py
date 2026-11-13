@@ -134,6 +134,8 @@ EN = {
     'Carregar pasta de outro jogo...': "Load folder of another game...",
     'Clique em um item para ir até a linha': "Click an item to jump to its line",
     'Clonar de:': "Clone from:",
+    'Criar personagem do zero (assistente)...': "Create character from scratch (wizard)...",
+    'Criar personagem do zero': "Create character from scratch",
     'Clonar este personagem / criar novo mod...': "Clone this character / create new mod...",
     'Clonar personagem / criar novo mod': "Clone character / create new mod",
     'Clonar personagem / criar novo mod...': "Clone character / create new mod...",

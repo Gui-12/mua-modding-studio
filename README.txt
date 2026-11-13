@@ -61,6 +61,10 @@ COMO USAR (resumo)
   e a barra de botoes.
 - Outros jogos / personagens avulsos: Arquivo > Carregar pasta de outro jogo... /
   Adicionar personagem avulso...
+- Criar personagem do zero (v1.1): Ferramentas > Criar personagem do zero (assistente)...
+  ou "Run Character Creator.bat". Assistente em etapas (base, identidade, skins/HUD, menu,
+  atributos, poderes), aba Editar poderes, visualizador no Insight e FAQ. Detalhes em
+  creator\README.txt.
 
 
 BACKUPS E CONFIGURACAO
@@ -77,6 +81,7 @@ extras.py     herostat/npcstat, mixer, clonar      xmlb.py     leitor/compilador
 project.py    leitura de personagens e pastas      transfer.py logica de copiar/converter poderes
 ops.py        remover/exportar/clonar              anims.py    animacoes (animationProducer)
 zsnd.py       bancos de som (ZSNDPC)               i18n.py / lang_en.py   idiomas
+audio_ui.py   editor de audio                      creator\    criador de personagem (modulo a parte)
 
 Para adicionar uma traducao: escreva o texto em portugues no codigo e a versao em ingles
 em lang_en.py (o que nao estiver la continua em portugues).

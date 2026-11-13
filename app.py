@@ -796,6 +796,7 @@ class App(th.ctk.CTk):
         m.add_command(label="Mixer de animações...", command=self.anim_mixer)
         m.add_command(label="Editor de áudio...", command=self.audio_editor)
         m.add_command(label="Copiar efeitos e models...", command=self.copy_resources)
+        m.add_command(label="Criar personagem do zero (assistente)...", command=self.character_creator)
         m.add_command(label="Clonar personagem / criar novo mod...", command=self.clone_character)
         m.add_command(label="Compilar personagem (salvar numa pasta)...", command=self.export_character)
         m.add_command(label="Editar herostat do jogo", command=self.open_herostat)
@@ -2003,6 +2004,14 @@ class App(th.ctk.CTk):
 
     def anim_mixer(self, char=None):
         return extras.AnimMixer(self, char or self.selected_char())
+
+    def character_creator(self):
+        """Módulo à parte (pasta creator/); se ele faltar ou falhar, o resto do MUA Studio segue normal."""
+        try:
+            import creator
+            creator.open_creator(self)
+        except Exception as e:
+            messagebox.showerror("Criar personagem do zero", f"Não consegui abrir o módulo creator: {e}", parent=self)
 
     def clone_character(self, char=None):
         return extras.CloneDialog(self, char or self.selected_char())
