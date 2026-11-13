@@ -603,11 +603,21 @@ def build_plan(proj: Project, info: PowerInfo, dst: Character, new_talent: str, 
 
             name = base
             if clash(name):
-                name = f"{new_talent}_{base}"
+                # o destino já tem um efeito diferente com esse nome: o copiado ganha o nome de quem está dando o poder
+                pre = src.name.lower()
+                name = base if base.lower().startswith(pre + "_") else f"{pre}_{base}"
                 i = 2
                 while clash(name) and not replace:
-                    name = f"{new_talent}_{base}_{i}"
+                    name = f"{pre}_{base}_{i}"
                     i += 1
+                try:
+                    import ops  # import tardio: ops importa este módulo
+                    who = ops.effect_usage(dst).get(f"char/{folder}/{base}".lower(), [])
+                except Exception:
+                    who = []
+                plan.warnings.append(f"{dst.display} já tem um efeito char/{folder}/{base} diferente"
+                                     + (f" (usado por: {', '.join(who)})" if who else "")
+                                     + f"; o copiado entra como char/{folder}/{name} e o dele fica intacto")
             tp = target(name)
             used_targets.add(os.path.normcase(tp))
             fx_map[norm(fx)] = f"char/{folder}/{name}"

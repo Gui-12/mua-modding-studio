@@ -7,7 +7,7 @@ import os
 import re
 import sys
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, colorchooser
+from tkinter import ttk, messagebox, filedialog, simpledialog, colorchooser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import i18n  # noqa: E402
@@ -18,6 +18,7 @@ import transfer  # noqa: E402
 import anims  # noqa: E402
 import ops  # noqa: E402
 import extras  # noqa: E402
+import audio_ui  # noqa: E402
 
 import theme as th  # noqa: E402
 from theme import BG, PANEL, FG, DIM, ACCENT, SEL, LINE, SURFACE  # noqa: E402
@@ -60,7 +61,7 @@ class EditorTab(ttk.Frame):
         self.gutter.pack(side="left", fill="y")
         tk.Frame(body, width=1, bg=th.mix(BG, LINE, .6)).pack(side="left", fill="y")
         self.text = tk.Text(body, wrap="none", undo=True, maxundo=-1, bg=BG, fg=FG, insertbackground=FG,
-                            selectbackground=SEL, selectforeground="#ffffff", font=FONT, borderwidth=0,
+                            selectbackground=SEL, selectforeground=th.SEL_FG, font=FONT, borderwidth=0,
                             highlightthickness=0, padx=12, pady=8, tabs=("3c",), inactiveselectbackground=SEL,
                             spacing1=1, spacing3=1, insertwidth=2)
         vs = ttk.Scrollbar(body, orient="vertical", command=self._yview)
@@ -72,8 +73,16 @@ class EditorTab(ttk.Frame):
 
         # localizar flutuante, no canto superior direito do editor
         self.find_var = tk.StringVar()
+        self.replace_var = tk.StringVar()
+        self.case_var = tk.BooleanVar(value=True)  # a busca diferencia maiúsculas (string exata)
         self.find_bar = th.FindBar(body, self.find_var, on_next=self.find_next,
-                                   on_prev=lambda: self.find_next(back=True), on_close=self.hide_find)
+                                   on_prev=lambda: self.find_next(back=True), on_close=self.hide_find,
+                                   replace_var=self.replace_var, on_replace=self.replace_next,
+                                   on_replace_all=self.replace_all, case_var=self.case_var)
+        re_ = self.find_bar.replace_entry
+        re_.bind("<Return>", lambda e: (self.replace_next(), "break")[1])
+        re_.bind("<Control-Return>", lambda e: (self.replace_all(), "break")[1])
+        re_.bind("<Escape>", lambda e: self.hide_find())
         fe = self.find_bar.entry
         fe.bind("<Return>", lambda e: self.find_next())
         fe.bind("<Shift-Return>", lambda e: self.find_next(back=True))
@@ -92,7 +101,7 @@ class EditorTab(ttk.Frame):
         t.tag_configure("comment", foreground=th.SYN_COMMENT)
         t.tag_configure("err", underline=True, underlinefg=th.ERR, background=th.ERR_BG)
         t.tag_configure("warn", underline=True, underlinefg=th.WARN, background=th.WARN_BG)
-        t.tag_configure("found", background="#5a4b1a")
+        t.tag_configure("found", background=th.FOUND_BG)
         t.tag_configure("curline", background=th.CURLINE)
         t.tag_lower("curline")
         t.bind("<<Modified>>", self._on_modified)
@@ -103,7 +112,7 @@ class EditorTab(ttk.Frame):
         t.bind("<Tab>", self._tab)
         t.bind("<Button-3>", self._context_menu)
         t.bind("<Control-Button-3>", self._toggle_block)
-        t.tag_configure("blocksel", background="#3d3418")
+        t.tag_configure("blocksel", background=th.BLOCKSEL_BG)
         t.tag_lower("blocksel")
         self.sel_blocks: set[int] = set()  # linha inicial de cada bloco marcado com Ctrl+botão direito
         t.bind("<F3>", lambda e: (self.find_next(), "break")[1])
@@ -112,7 +121,8 @@ class EditorTab(ttk.Frame):
         # o campo de texto do Tk já usa Ctrl+K/O/T/F/W para outras coisas: os atalhos da IDE têm prioridade
         for seq, fn in (("<Control-s>", app.save_current), ("<Control-S>", app.save_all), ("<Control-o>", app.open_dialog),
                         ("<Control-t>", app.copy_power), ("<Control-k>", self.edit_color), ("<Control-K>", app.colors_dialog),
-                        ("<Control-f>", self.show_find), ("<F12>", self.goto_definition), ("<F1>", self.explain),
+                        ("<Control-f>", self.show_find), ("<Control-h>", lambda: self.show_find(replace=True)),
+                        ("<F12>", self.goto_definition), ("<F1>", self.explain),
                         ("<Control-w>", lambda: self.after_idle(lambda: app.close_tab(self))),
                         ("<Control-F4>", lambda: self.after_idle(lambda: app.close_tab(self)))):
             t.bind(seq, lambda e, f=fn: (f(), "break")[1])
@@ -411,8 +421,15 @@ class EditorTab(ttk.Frame):
             if self.char and moves and len(moves) == len(marked):
                 m.add_command(label=f"Copiar os {len(moves)} FightMoves marcados para outro personagem...",
                               command=lambda: app.copy_power(self.char, None, None, moves[0], moves[1:]))
-            m.add_command(label=f"Copiar o texto dos {len(marked)} blocos marcados", command=self.copy_blocks_text)
+            m.add_command(label=f"Copiar os {len(marked)} blocos marcados", command=self.copy_blocks_text)
+            m.add_command(label=f"Excluir os {len(marked)} blocos marcados...", command=lambda: self.delete_nodes(marked))
             m.add_command(label="Desmarcar todos", command=self.clear_blocks)
+            m.add_separator()
+        if b is not None and not marked:
+            nm = b.get("name")
+            what = f"{b.name} {nm}" if nm else b.name
+            m.add_command(label=f"Copiar este bloco  ({what})", command=lambda: self.copy_nodes([b]))
+            m.add_command(label=f"Excluir este bloco  ({what})...", command=lambda: self.delete_nodes([b]))
             m.add_separator()
         if b is not None and self.char and b.name in ("FightMove", "talent"):
             talent = b if b.name == "talent" else self.char.talent_for_move(b)
@@ -431,10 +448,124 @@ class EditorTab(ttk.Frame):
         m.add_command(label="Ir para a definição", accelerator="F12", command=self.goto_definition)
         m.add_command(label="Editar cor da linha", accelerator="Ctrl+K", command=self.edit_color)
         m.add_command(label="Localizar", accelerator="Ctrl+F", command=self.show_find)
+        m.add_command(label="Substituir", accelerator="Ctrl+H", command=lambda: self.show_find(replace=True))
         m.tk_popup(e.x_root, e.y_root)
 
+    # ---- substituir ---------------------------------------------------------------
+    def _matches(self, a: str, b: str) -> bool:
+        return a == b if self.case_var.get() else a.lower() == b.lower()
+
+    def replace_next(self):
+        """Troca a ocorrência selecionada (ou a próxima depois do cursor) e vai para a seguinte."""
+        q, r = self.find_var.get(), self.replace_var.get()
+        if not q:
+            return self.find_entry.focus_set()
+        t = self.text
+        try:
+            a, b = t.index("sel.first"), t.index("sel.last")
+            cur = t.get(a, b)
+        except tk.TclError:
+            a = b = None
+            cur = ""
+        if a is None or not self._matches(cur, q):
+            t.mark_set("insert", "insert-1c")
+            self.find_next()
+            try:
+                a, b = t.index("sel.first"), t.index("sel.last")
+            except tk.TclError:
+                return
+            if not self._matches(t.get(a, b), q):
+                return
+        t.edit_separator()
+        t.delete(a, b)
+        t.insert(a, r)
+        t.edit_separator()
+        t.mark_set("insert", f"{a}+{len(r)}c")
+        t.tag_remove("sel", "1.0", "end")
+        left = len(self._all_positions(q))
+        if left:
+            self.find_next()
+        else:
+            t.tag_remove("found", "1.0", "end")
+        self.find_info.configure(text=f"1 substituída, {left} restante(s)", fg=DIM)
+        self.app.status(f"Substituído '{q}' por '{r}' (Ctrl+Z desfaz)")
+
+    def _all_positions(self, q: str) -> list[str]:
+        out, pos, t = [], "1.0", self.text
+        while q:
+            pos = t.search(q, pos, stopindex="end", nocase=not self.case_var.get())
+            if not pos:
+                break
+            out.append(pos)
+            pos = f"{pos}+{len(q)}c"
+        return out
+
+    def replace_all(self):
+        q, r = self.find_var.get(), self.replace_var.get()
+        if not q:
+            return self.find_entry.focus_set()
+        t = self.text
+        found = self._all_positions(q)
+        if not found:
+            return self.find_info.configure(text="nada encontrado", fg=th.ERR_SOFT)
+        t.configure(autoseparators=False)
+        t.edit_separator()
+        for pos in reversed(found):  # de trás para frente: as posições anteriores não mudam
+            t.delete(pos, f"{pos}+{len(q)}c")
+            t.insert(pos, r)
+        t.edit_separator()
+        t.configure(autoseparators=True)
+        t.tag_remove("found", "1.0", "end")
+        self.find_info.configure(text=f"{len(found)} substituída(s)", fg=DIM)
+        self.app.status(f"{len(found)} ocorrência(s) de '{q}' trocadas por '{r}' (Ctrl+Z desfaz tudo de uma vez)")
+
+    # ---- copiar / excluir blocos inteiros ----------------------------------------------
+    def nodes_at_lines(self, lines) -> list[xmlb.Node]:
+        if self._job or self.tree is None:  # a árvore precisa refletir o texto atual
+            self.refresh()
+        want = {int(x) for x in lines}
+        return [n for n in (self.tree.children if self.tree is not None else []) if n.line in want]
+
+    def copy_nodes(self, nodes):
+        parts = []
+        for n in nodes:
+            a, b = self.block_range(n)
+            parts.append(self.text.get(f"{a}.0", f"{b}.end"))
+        if not parts:
+            return
+        self.clipboard_clear()
+        self.clipboard_append("\n\n".join(parts) + "\n")
+        self.app.status(f"{len(parts)} bloco(s) copiado(s): " + ", ".join(n.get("name") or n.name for n in nodes[:8]))
+
+    def delete_nodes(self, nodes, ask: bool = True) -> bool:
+        if not nodes:
+            return False
+        names = ", ".join(n.get("name") or n.name for n in nodes[:10]) + (" ..." if len(nodes) > 10 else "")
+        if ask and not messagebox.askyesno("Excluir bloco", f"Excluir {len(nodes)} bloco(s) inteiro(s)?\n\n{names}\n\n"
+                                           "(Só vale ao salvar; Ctrl+Z desfaz.)", parent=self.app):
+            return False
+        t = self.text
+        ranges = [self.block_range(n) for n in nodes]
+        last = int(t.index("end-1c").split(".")[0])
+        t.configure(autoseparators=False)
+        t.edit_separator()
+        for a, b in sorted(ranges, reverse=True):
+            end = b + 1
+            while end < last and t.get(f"{end}.0", f"{end}.end").strip() == "":
+                end += 1  # leva junto as linhas em branco depois do bloco
+            t.delete(f"{a}.0", f"{end}.0")
+        t.edit_separator()
+        t.configure(autoseparators=True)
+        self.sel_blocks.clear()
+        self.text.tag_remove("blocksel", "1.0", "end")
+        self.refresh()
+        self.app.status(f"{len(nodes)} bloco(s) excluído(s): {names}   (salve com Ctrl+S; Ctrl+Z desfaz)")
+        return True
+
     # ---- localizar ---------------------------------------------------------------
-    def show_find(self):
+    def show_find(self, replace: bool | None = None):
+        if replace is not None:
+            self.find_bar.show_replace(replace)
         self.find_bar.place(relx=1.0, x=-22, y=10, anchor="ne")
         self.find_bar.lift()
         try:
@@ -443,8 +574,12 @@ class EditorTab(ttk.Frame):
                 self.find_var.set(sel)
         except tk.TclError:
             pass
-        self.find_entry.focus_set()
-        self.find_entry.selection_range(0, "end")
+        if replace and self.find_var.get():
+            self.find_bar.replace_entry.focus_set()
+            self.find_bar.replace_entry.selection_range(0, "end")
+        else:
+            self.find_entry.focus_set()
+            self.find_entry.selection_range(0, "end")
 
     def hide_find(self):
         self.find_bar.place_forget()
@@ -460,17 +595,19 @@ class EditorTab(ttk.Frame):
         n = 0
         pos = "1.0"
         while True:
-            pos = t.search(q, pos, stopindex="end", nocase=True)
+            pos = t.search(q, pos, stopindex="end", nocase=not self.case_var.get())
             if not pos:
                 break
             t.tag_add("found", pos, f"{pos}+{len(q)}c")
             pos = f"{pos}+{len(q)}c"
             n += 1
         if back:
-            pos = t.search(q, "insert-1c", stopindex="1.0", backwards=True, nocase=True) or \
-                t.search(q, "end", stopindex="1.0", backwards=True, nocase=True)
+            nc = not self.case_var.get()
+            pos = t.search(q, "insert-1c", stopindex="1.0", backwards=True, nocase=nc) or \
+                t.search(q, "end", stopindex="1.0", backwards=True, nocase=nc)
         else:
-            pos = t.search(q, "insert+1c", stopindex="end", nocase=True) or t.search(q, "1.0", stopindex="end", nocase=True)
+            nc = not self.case_var.get()
+            pos = t.search(q, "insert+1c", stopindex="end", nocase=nc) or t.search(q, "1.0", stopindex="end", nocase=nc)
         self.find_info.configure(text=f"{n} ocorrência(s)" if n else "nada encontrado",
                                  fg=DIM if n else th.ERR_SOFT)
         if pos:
@@ -620,6 +757,7 @@ class App(tk.Tk):
         self.proj = pj.Project(root_dir)
         self.actions: dict[str, tuple] = {}
         self._acts: dict = {}  # cada árvore tem o seu dicionário de ações
+        self._names: set[str] | None = None  # nomes no herostat/npcstat (cor das bolinhas)
         self.others: list[pj.Project] = []  # outras pastas de jogo
         self.loose: list[pj.Project] = []  # personagens avulsos
         self.settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json") if settings else None
@@ -657,6 +795,8 @@ class App(tk.Tk):
         m.add_command(label="Converter poder de herói para NPC...", command=self.npc_power)
         m.add_command(label="Organizar poderes (níveis e tiers)...", command=self.organize_powers)
         m.add_command(label="Mixer de animações...", command=self.anim_mixer)
+        m.add_command(label="Editor de áudio...", command=self.audio_editor)
+        m.add_command(label="Copiar efeitos e models...", command=self.copy_resources)
         m.add_command(label="Clonar personagem / criar novo mod...", command=self.clone_character)
         m.add_command(label="Compilar personagem (salvar numa pasta)...", command=self.export_character)
         m.add_command(label="Editar herostat do jogo", command=self.open_herostat)
@@ -669,10 +809,15 @@ class App(tk.Tk):
         for code, name in i18n.LANGS:
             m.add_radiobutton(label=name, value=code, variable=self.lang_var, command=lambda c=code: self.set_language(c))
         m_lang = m
+        m = tk.Menu(self, tearoff=0)
+        self.theme_var = tk.StringVar(value=th.MODE)
+        for code, name in th.MODES:
+            m.add_radiobutton(label=name, value=code, variable=self.theme_var, command=lambda c=code: self.set_theme(c))
+        m_theme = m
 
         # cabeçalho escuro no lugar da barra de menus do Windows (que não aceita cores)
-        self.header = th.Header(self, [("Arquivo", m_file), ("Editar", m_edit), ("Ferramentas", m_tools), ("Idioma", m_lang)],
-                                on_backup=self.open_backups)
+        self.header = th.Header(self, [("Arquivo", m_file), ("Editar", m_edit), ("Ferramentas", m_tools), ("Idioma", m_lang),
+                                       ("Tema", m_theme)], on_backup=self.open_backups)
         self.header.pack(fill="x")
 
         bar = tk.Frame(self, bg=PANEL)
@@ -699,7 +844,9 @@ class App(tk.Tk):
         hb = TB(row, "Herostat / NPCStat  ▾", "sliders", None, icon_color=th.SYN_KEY)
         hb.command = lambda: mm.tk_popup(hb.winfo_rootx(), hb.winfo_rooty() + hb.winfo_height() + 2)
         hb.pack(side="left", padx=(0, 6))
-        TB(row, "Mixer de animações", "film", self.anim_mixer, icon_color=th.OK).pack(side="left")
+        TB(row, "Mixer de animações", "film", self.anim_mixer, icon_color=th.OK).pack(side="left", padx=(0, 6))
+        TB(row, "Editor de áudio", "list", self.audio_editor, icon_color=th.PINK).pack(side="left", padx=(0, 6))
+        TB(row, "Efeitos e models", "package", self.copy_resources, icon_color=th.SYN_PATH).pack(side="left")
         TB(row, "Localizar", "search", find, kbd="Ctrl+F", icon_color=DIM).pack(side="right")
         th.hline(bar)
 
@@ -713,6 +860,16 @@ class App(tk.Tk):
 
         # esquerda
         lf = tk.Frame(main, bg=PANEL)
+        # legenda das bolinhas dos personagens
+        leg = tk.Frame(lf, bg=PANEL)
+        leg.pack(side="bottom", fill="x")
+        th.hline(leg)
+        lr = tk.Frame(leg, bg=PANEL)
+        lr.pack(fill="x", padx=8, pady=4)
+        for color, text in ((th.ST_GAME, "no jogo"), (th.ST_OUT, "fora do jogo"), (th.ST_OTHER, "outro jogo"),
+                            (th.ST_CREATED, "criado")):
+            tk.Label(lr, image=th.dot(color, 12, 7), text=text, compound="left", font=th.UI_XS, bg=PANEL, fg=DIM,
+                     padx=2).pack(side="left", padx=(0, 6))
         left = ttk.Notebook(lf)
         left.pack(fill="both", expand=True)
         self.left = left
@@ -722,13 +879,18 @@ class App(tk.Tk):
         side_btn = {"created": ("Clonar personagem / novo mod...", "copy", self.clone_character),
                     "other": ("Carregar pasta de outro jogo...", "folder", self.add_game),
                     "loose": ("Adicionar personagem (pasta)...", "people", self.add_loose)}
-        for key, title in (("main", "Heróis"), ("created", "Criados"), ("other", "Outro jogo"), ("loose", "Avulsos")):
+        self.npc_filter = tk.StringVar()
+        for key, title in (("main", "Heróis"), ("npc", "NPCs"), ("created", "Criados"), ("other", "Outro jogo"), ("loose", "Avulsos")):
             cf = ttk.Frame(left)
             if key == "main":
                 th.SearchEntry(cf, self.filter_var, "Filtrar herói ou nome interno...").pack(fill="x", padx=8, pady=(2, 8))
+            elif key == "npc":
+                th.SearchEntry(cf, self.npc_filter, "Filtrar NPC, nome interno ou powerstyle...").pack(fill="x", padx=8, pady=(2, 8))
             else:
                 text, icon, cmd = side_btn[key]
-                TB(cf, text, icon, cmd, icon_color=ACCENT).pack(fill="x", padx=8, pady=(2, 8))
+                TB(cf, text, icon, cmd, icon_color=ACCENT).pack(fill="x", padx=8, pady=(2, 4 if key in ("other", "loose") else 8))
+                if key in ("other", "loose"):
+                    TB(cf, "Limpar lista", "close", lambda k=key: self.clear_projects(k), icon_color=DIM).pack(fill="x", padx=8, pady=(0, 8))
             th.hline(cf)
             t = self._tree(cf, columns=("info",))
             t.bind("<<TreeviewOpen>>", self._char_open)
@@ -742,6 +904,7 @@ class App(tk.Tk):
         self.ctree = self.trees["main"]
         self.actions = self._acts[self.ctree]
         self.filter_var.trace_add("write", lambda *a: self.fill_characters())
+        self.npc_filter.trace_add("write", lambda *a: self.fill_npcs())
         ff = ttk.Frame(left)
         self.ftree = self._tree(ff)
         self._acts[self.ftree] = {}
@@ -799,15 +962,30 @@ class App(tk.Tk):
         self.otree.column("ln", width=46, stretch=False, anchor="e")
         for tag, color in (("FightMove", FG), ("talent", th.SYN_KEY), ("other", DIM)):
             self.otree.tag_configure(tag, foreground=color)
+        self.otree.configure(selectmode="extended")
         self.otree.bind("<<TreeviewSelect>>", self._outline_select)
+        self.otree.bind("<Button-3>", self._outline_menu)
+        self.otree.bind("<Delete>", lambda e: self._outline_action("delete"))
+        self.otree.bind("<Control-c>", lambda e: self._outline_action("copy"))
         main.add(right, weight=0)
-        self.after(50, lambda: (main.sashpos(0, 320), main.sashpos(1, self.winfo_width() - 290)))
+        def place_sashes(tries=0):
+            # espera a janela ter o tamanho de verdade; antes disso os painéis laterais abririam fechados
+            w = main.winfo_width()
+            if w < 700 and tries < 80:
+                return self.after(50, lambda: place_sashes(tries + 1))
+            main.sashpos(0, 365)
+            main.sashpos(1, max(700, w - 290))
+            if tries >= 0 and main.sashpos(0) < 100:  # o Tk ainda não aplicou: tenta de novo
+                self.after(100, lambda: place_sashes(-1 if tries > 70 else tries + 1))
+
+        self.after(50, place_sashes)
 
         for seq, fn in (("<Control-s>", self.save_current), ("<Control-S>", self.save_all), ("<Control-o>", self.open_dialog),
                         ("<Control-w>", self.close_current), ("<Control-t>", self.copy_power), ("<F12>", self.goto_def),
                         ("<Control-k>", self.edit_color), ("<Control-K>", self.colors_dialog),
                         ("<F1>", self.explain),
-                        ("<Control-f>", find)):
+                        ("<Control-f>", find),
+                        ("<Control-h>", lambda: self.current() and self.current().show_find(replace=True))):
             self.bind(seq, lambda e, f=fn: (f(), "break")[1])
 
     def _build_welcome(self, page: tk.Frame):
@@ -816,7 +994,7 @@ class App(tk.Tk):
         top = tk.Frame(box, bg=BG)
         top.pack(fill="x")
         tk.Label(top, text="M", font=(th.UI_B[0], 16, "bold"), bg=ACCENT, fg="#ffffff", width=2).pack(side="left")
-        tk.Label(top, text="MUA Studio", font=th.H1, bg=BG, fg="#ffffff").pack(side="left", padx=12)
+        tk.Label(top, text="MUA Studio", font=th.H1, bg=BG, fg=th.STRONG).pack(side="left", padx=12)
         tk.Label(box, text="Abra, edite e compile os arquivos de personagem do Marvel Ultimate Alliance.",
                  font=th.UI, bg=BG, fg=DIM, anchor="w").pack(fill="x", pady=(6, 0))
         th.section_title(box, "Como funciona")
@@ -830,7 +1008,7 @@ class App(tk.Tk):
             hd = tk.Frame(c, bg=PANEL)
             hd.pack(fill="x", padx=12, pady=(10, 4))
             th.chip(hd, n, "info", font=th.UI_SB, padx=7).pack(side="left")
-            tk.Label(hd, text=title, font=th.UI_B, bg=PANEL, fg="#ffffff").pack(side="left", padx=8)
+            tk.Label(hd, text=title, font=th.UI_B, bg=PANEL, fg=th.STRONG).pack(side="left", padx=8)
             d = tk.Label(c, text=text, font=th.UI_S, bg=PANEL, fg=DIM, justify="left", anchor="w")
             d.pack(fill="x", padx=12, pady=(0, 12))
             c.bind("<Configure>", lambda e, d=d: d.configure(wraplength=max(120, e.width - 26)))
@@ -865,10 +1043,11 @@ class App(tk.Tk):
             tv.column("#0", stretch=True, width=190)
             tv.column("info", width=118, stretch=False, anchor="e")
         # cores por tipo de item (árvore de personagens e de arquivos)
-        for tag, opts in (("char", {"foreground": FG}),("proj", {"foreground": "#ffffff", "font": th.UI_B}),
-                          ("sheet", {"foreground": "#fcd34d"}), ("power", {"foreground": th.SYN_KEY}),
+        for tag, opts in (("char", {"foreground": FG}),("proj", {"foreground": th.STRONG, "font": th.UI_B}),
+                          ("sheet", {"foreground": th.SHEET_FG}), ("power", {"foreground": th.SYN_KEY}),
                           ("group", {"foreground": DIM, "font": th.UI_SB}), ("dim", {"foreground": DIM}),
                           ("missing", {"foreground": th.ERR_SOFT}), ("meta", {"foreground": th.FAINT, "font": th.MONO_XS}),
+                          ("unused", {"foreground": th.ERR}),
                           ("dir", {"foreground": FG}), ("bin", {"foreground": FG}), ("txt", {"foreground": DIM})):
             tv.tag_configure(tag, **opts)
         th.enable_hover(tv)
@@ -926,7 +1105,8 @@ class App(tk.Tk):
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
                 json.dump({"other": [p.root for p in self.others], "loose": [p.folder for p in self.loose],
-                           "lang": self.lang_var.get() if hasattr(self, "lang_var") else i18n.read_saved()}, f, indent=1)
+                           "lang": self.lang_var.get() if hasattr(self, "lang_var") else i18n.read_saved(),
+                           "theme": th.read_mode()}, f, indent=1)
         except OSError:
             pass
 
@@ -987,7 +1167,32 @@ class App(tk.Tk):
             self.ctree = tree
 
     # ---- arvore de personagens -------------------------------------------------------------
+    def _game_names(self) -> set[str]:
+        """Nomes internos registrados no jogo principal (herostat + npcstat), para a cor das bolinhas."""
+        if self._names is None:
+            names = {c.name.lower() for c in self.proj.characters}
+            try:
+                names |= {c.name.lower() for c in self.proj.npcs()}
+            except Exception:
+                pass
+            self._names = names
+        return self._names
+
+    def char_status(self, c: pj.Character) -> tuple[str, str]:
+        """Cor e texto do status: verde no jogo, vermelho fora, azul outro jogo, amarelo criado."""
+        p = c.proj
+        if p is self.created or getattr(p, "kind", "") == "criado":
+            return th.ST_CREATED, "criado no MUA Studio"
+        if p in self.others:
+            return th.ST_OTHER, f"de outro jogo ({p.label})"
+        if p is self.proj:
+            return th.ST_GAME, "no npcstat do jogo" if getattr(c, "is_npc", False) else "no herostat do jogo"
+        if c.name.lower() in self._game_names():
+            return th.ST_GAME, "registrado no jogo"
+        return th.ST_OUT, "fora do jogo (não está no herostat nem no npcstat)"
+
     def fill_characters(self):
+        self._names = None
         q = self.filter_var.get().lower().strip()
         for key, projs in (("main", [self.proj]), ("created", [self.created]), ("other", self.others), ("loose", self.loose)):
             t = self.trees[key]
@@ -1006,11 +1211,57 @@ class App(tk.Tk):
                     if key == "main" and q and q not in c.display.lower() and q not in c.name.lower():
                         continue
                     iid = t.insert(parent, "end", text=c.display, values=(c.name,), tags=("char",),
-                                   image=th.dot(th.char_color(c.name), 14, 8))
+                                   image=th.dot(self.char_status(c)[0], 14, 8))
                     acts[iid] = ("char", c)
                     t.insert(iid, "end", text="...")
             if key != "main" and not projs:
                 t.insert("", "end", text="(nada carregado: use o botão acima)", tags=("dim",))
+        self.fill_npcs()
+
+    def fill_npcs(self):
+        """Aba NPCs: os NPCs do npcstat que lutam (têm powerstyle), com o mesmo detalhamento dos heróis."""
+        if "npc" not in self.trees:
+            return
+        t = self.trees["npc"]
+        acts = self._acts[t]
+        acts.clear()
+        t.delete(*t.get_children())
+        q = self.npc_filter.get().lower().strip()
+        try:
+            npcs = self.proj.npcs()
+        except Exception as e:
+            t.insert("", "end", text=f"(npcstat ilegível: {e})", tags=("dim",))
+            return
+        for c in npcs:
+            if q and q not in c.display.lower() and q not in c.name.lower() and q not in c.powerstyle.lower():
+                continue
+            iid = t.insert("", "end", text=c.display, values=(c.powerstyle,), tags=("char",),
+                           image=th.dot(self.char_status(c)[0], 14, 8))
+            acts[iid] = ("char", c)
+            t.insert(iid, "end", text="...")
+        if not npcs:
+            t.insert("", "end", text="(nenhum NPC com powerstyle em data/npcstat)", tags=("dim",))
+
+    def clear_projects(self, key: str):
+        lst = self.others if key == "other" else self.loose
+        if not lst:
+            return self.status("A lista já está vazia")
+        what = "outros jogos" if key == "other" else "personagens avulsos"
+        if not messagebox.askyesno("Limpar lista", f"Tirar os {len(lst)} {what} da lista?\n\nNada é apagado do disco; "
+                                   "você pode carregá-los de novo depois.", parent=self):
+            return
+        open_paths = [t for t in self.editors() if any(p.owns(t.path) for p in lst)]
+        dirty = [t for t in open_paths if t.modified]
+        if dirty:
+            return messagebox.showwarning("Salve antes", "Arquivos dessas pastas estão abertos com alterações não salvas:\n\n"
+                                          + "\n".join(os.path.basename(t.path) for t in dirty), parent=self)
+        for t in open_paths:
+            self.tabs.forget(t)
+            t.destroy()
+        n = len(lst)
+        lst.clear()
+        self._after_projects_changed(key)
+        self.status(f"{n} {what} tirados da lista")
 
     def fill_files(self):
         t = self.ftree
@@ -1056,7 +1307,84 @@ class App(tk.Tk):
         self.actions[iid] = action
         return iid
 
+    def _fill_npc(self, iid, c: pj.Character):
+        proj = c.proj
+        self._leaf(iid, "NPCStat", ("npcstat", c), info="atributos, vida, dano, talentos", kind="sheet", color=th.AMBER)
+        pp = c.powerstyle_path
+        self._leaf(iid, "Powerstyle", ("open", pp, None), info=os.path.basename(pp) if pp else f"{c.powerstyle}: não encontrado",
+                   kind="" if pp else "missing", color=ACCENT)
+        moves = []
+        if pp:
+            try:
+                moves = [m for m in proj.load(pp).children if m.name == "FightMove" and m.get("name")]
+            except Exception:
+                pass
+        g = self.ctree.insert(iid, "end", text="Moves", values=(str(len(moves)),), open=True, tags=("group",),
+                              image=th.square(th.SYN_KEY, 14, 6))
+        for m in moves:
+            nm = m.get("name")
+            self._leaf(g, nm, ("open", pp, r"^\s*name\s*=\s*" + re.escape(nm) + r"\s*;"),
+                       info=" ".join(x for x in (m.get("aitype", ""), m.get("animenum", "")) if x), kind="power" if nm.lower().startswith("power") else "")
+        if not moves:
+            self.ctree.insert(g, "end", text="(nenhum: use 'Converter poder de herói para este NPC')", tags=("dim",))
+        for p in c.entity_paths:
+            self._leaf(iid, "Entidades", ("open", p, None), info=os.path.basename(p), color=th.SYN_VAR)
+        tree, acts = self.ctree, self.actions
+
+        self._resource_groups(iid, c, tree, acts)
+        s = c.stats
+        tree.insert(iid, "end", text=f"skin {s.get('skin', '-')}  \u00b7  anims {c.anims or '-'}  \u00b7  som {c.sounddir or '-'}",
+                    tags=("meta",), image=th.blank())
+        tree.insert(iid, "end", text=f"nível {s.get('level', '-')}  \u00b7  vida {s.get('specific_health', '-')}  \u00b7  "
+                    f"dano x{s.get('npcdamagescale', '1')}  \u00b7  time {s.get('team', '-')}", tags=("meta",), image=th.blank())
+
+    def _resource_groups(self, iid, c: pj.Character, tree, acts):
+        """Grupos 'Efeitos usados', 'Models' e 'Pacotes' de um personagem (herói ou NPC)."""
+        proj = c.proj
+
+        def fill_fx(node, c=c):
+            fx = ops.effects_with_usage(c)
+            main = transfer.effects_folder(c)
+            unused = 0
+            for v, p, who in fx:
+                parts = v.split("/")
+                short = parts[-1] if len(parts) == 3 and parts[0].lower() == "char" and parts[1].lower() == main else v
+                if not p:
+                    info, kind = "não existe", "missing"
+                elif not who:
+                    info, kind = "Não usado", "unused"
+                    unused += 1
+                else:
+                    info, kind = who[0] + (f"  +{len(who) - 1}" if len(who) > 1 else ""), ""
+                self._leaf(node, short + ("" if not who else "   \u00b7  " + ", ".join(who)), ("open", p, None, ("fx", c, v)),
+                           info=info, kind=kind)
+            tree.item(node, values=(f"{len(fx) - unused}" + (f"  ({unused} sem uso)" if unused else ""),))
+            if not fx:
+                tree.insert(node, "end", text="(nenhum)", tags=("dim",))
+
+        def fill_md(node, c=c):
+            md = ops.char_models(c)
+            for v, p, where in md:
+                self._leaf(node, v, ("model", p, None, ("model", c, v)), info=where if p else "não existe", kind="" if p else "missing")
+            tree.item(node, values=(str(len(md)),))
+            if not md:
+                tree.insert(node, "end", text="(nenhum)", tags=("dim",))
+
+        def fill_pk(node, c=c):
+            for p in c.packages:
+                self._leaf(node, os.path.basename(p), ("open", p, None))
+            if not c.packages:
+                tree.insert(node, "end", text="(nenhum)", tags=("dim",))
+
+        for label, fn, color, info in (("Efeitos", fill_fx, th.SYN_PATH, ""), ("Models", fill_md, th.SYN_VAR, ""),
+                                       ("Pacotes", fill_pk, th.PINK, str(len(c.packages)))):
+            g = tree.insert(iid, "end", text=label, values=(info,), image=th.square(color, 14, 6))
+            acts[g] = ("lazy", fn)
+            tree.insert(g, "end", text="...")
+
     def _fill_char(self, iid, c: pj.Character):
+        if c.is_npc:
+            return self._fill_npc(iid, c)
         proj = c.proj
         self._leaf(iid, "Ficha do personagem", ("sheet", c), kind="sheet", color=th.AMBER)
         hs = getattr(proj, "snippets", {}).get(c.name.lower()) or proj.herostat_path
@@ -1078,26 +1406,7 @@ class App(tk.Tk):
             self._leaf(iid, "Entidades", ("open", p, None), info=os.path.basename(p), color=th.SYN_VAR)
         tree, acts = self.ctree, self.actions
 
-        def fill_fx(node, c=c):
-            fx = c.referenced(pj.EFFECT_KEYS)
-            for v in fx:
-                p = proj.effect_path(v)
-                self._leaf(node, v, ("open", p, None), info="" if p else "não existe", kind="" if p else "missing")
-            tree.item(node, values=(str(len(fx)),))
-            if not fx:
-                tree.insert(node, "end", text="(nenhum)", tags=("dim",))
-
-        def fill_pk(node, c=c):
-            for p in c.packages:
-                self._leaf(node, os.path.basename(p), ("open", p, None))
-            if not c.packages:
-                tree.insert(node, "end", text="(nenhum)", tags=("dim",))
-
-        for label, fn, color, info in (("Efeitos usados", fill_fx, th.SYN_PATH, ""),
-                                       ("Pacotes", fill_pk, th.PINK, str(len(c.packages)))):
-            g = tree.insert(iid, "end", text=label, values=(info,), image=th.square(color, 14, 6))
-            acts[g] = ("lazy", fn)
-            tree.insert(g, "end", text="...")
+        self._resource_groups(iid, c, tree, acts)
         skins = ", ".join(s for s, _ in c.skins)
         tree.insert(iid, "end", text=f"skins {skins}  \u00b7  anims {c.anims}  \u00b7  som {c.sounddir}", tags=("meta",),
                     image=th.blank())
@@ -1107,8 +1416,14 @@ class App(tk.Tk):
         act = self.actions.get(tree.focus())
         if not act:
             return
-        if act[0] == "sheet":
+        if act[0] == "npcstat":
+            self.open_npcstat(act[1].name)
+        elif act[0] == "sheet":
             self.open_sheet(act[1])
+        elif act[0] == "model":
+            if act[1]:
+                os.startfile(os.path.dirname(act[1]))
+                self.status(f"Model .igb não abre no editor de texto: mostrando a pasta de {os.path.basename(act[1])}")
         elif act[0] in ("open", "file"):
             if act[1]:
                 self.open_file(act[1], act[2] if len(act) > 2 else None)
@@ -1141,6 +1456,16 @@ class App(tk.Tk):
             m.add_command(label="Converter este poder para um NPC...", command=lambda: self.npc_power(c, tn))
             m.add_separator()
             m.add_command(label="Remover este poder (talento + moves)...", command=lambda: extras.remove_power(self, c, tn))
+        elif act[0] in ("char", "npcstat") and act[1].is_npc:
+            c = act[1]
+            m.add_command(label="Editar no NPCStat", command=lambda: self.open_npcstat(c.name))
+            m.add_command(label="Abrir o powerstyle", command=lambda: self.open_file(c.powerstyle_path) if c.powerstyle_path else None)
+            m.add_command(label="Converter poder de herói para este NPC...", command=lambda: self.npc_power_to(c))
+            m.add_command(label="Mixer de animações...", command=lambda: self.anim_mixer(c))
+            m.add_command(label="Editor de áudio...", command=lambda: self.audio_editor(c))
+            m.add_command(label="Copiar efeitos e models...", command=lambda: self.copy_resources(c))
+            m.add_separator()
+            m.add_command(label="Compilar NPC (salvar numa pasta)...", command=lambda: extras.export_character(self, c))
         elif act[0] == "char":
             m.add_command(label="Ficha do personagem", command=lambda: self.open_sheet(act[1]))
             m.add_command(label="Copiar um poder ou move deste personagem...", command=lambda: self.copy_power(act[1]))
@@ -1148,6 +1473,8 @@ class App(tk.Tk):
             m.add_separator()
             m.add_command(label="Organizar poderes (níveis e tiers)...", command=lambda: self.organize_powers(act[1]))
             m.add_command(label="Mixer de animações...", command=lambda: self.anim_mixer(act[1]))
+            m.add_command(label="Editor de áudio...", command=lambda: self.audio_editor(act[1]))
+            m.add_command(label="Copiar efeitos e models...", command=lambda: self.copy_resources(act[1]))
             m.add_command(label="Clonar este personagem / criar novo mod...", command=lambda: self.clone_character(act[1]))
             m.add_command(label="Compilar personagem (salvar numa pasta)...", command=lambda: self.export_character(act[1]))
             if act[1].proj.kind == "criado":
@@ -1158,9 +1485,18 @@ class App(tk.Tk):
             m.add_command(label="Recarregar esta pasta", command=lambda: (p._cache.clear(), p.reload_characters(), self._after_projects_changed(None)))
             m.add_command(label="Mostrar na pasta", command=lambda: os.startfile(getattr(p, "folder", p.root)))
             m.add_command(label="Remover da lista (não apaga nada do disco)", command=lambda: self.remove_project(p))
-        elif act[0] == "open" and act[1]:
-            m.add_command(label="Abrir", command=lambda: self._activate(tree))
-            m.add_command(label="Mostrar na pasta", command=lambda: os.startfile(os.path.dirname(act[1])))
+        elif act[0] in ("open", "model") and (act[1] or len(act) > 3):
+            if act[1]:
+                if act[0] == "open":
+                    m.add_command(label="Abrir", command=lambda: self._activate(tree))
+                m.add_command(label="Mostrar na pasta", command=lambda: os.startfile(os.path.dirname(act[1])))
+            if len(act) > 3:
+                kind, c, ref = act[3]
+                m.add_command(label=f"Copiar este {'efeito' if kind == 'fx' else 'model'} para outro personagem...",
+                              command=lambda: self.copy_resources(c, [ref]))
+            if len(act) > 3 and act[3][0] == "fx" and act[1]:
+                m.add_command(label="Renomear efeito (atualiza powerstyle e entidades)...", command=lambda: self.rename_effect(act[3][1], act[3][2]))
+                m.add_command(label="Recolorir (cores do arquivo)...", command=lambda: (self.open_file(act[1]), self.colors_dialog()))
         else:
             return
         m.tk_popup(e.x_root, e.y_root)
@@ -1362,6 +1698,35 @@ class App(tk.Tk):
             color = {"FightMove": th.SYN_BLOCK, "talent": th.SYN_KEY}.get(kind, th.FAINT)
             o.insert("", "end", text=text, values=(n.line,), tags=(kind,), image=th.square(color, 14, 6))
 
+    def _outline_menu(self, e):
+        iid = self.otree.identify_row(e.y)
+        if not iid:
+            return
+        if iid not in self.otree.selection():
+            self.otree.selection_set(iid)
+        n = len(self.otree.selection())
+        m = tk.Menu(self, tearoff=0)
+        m.add_command(label="Copiar bloco" if n == 1 else f"Copiar {n} blocos", accelerator="Ctrl+C",
+                      command=lambda: self._outline_action("copy"))
+        m.add_command(label="Excluir bloco..." if n == 1 else f"Excluir {n} blocos...", accelerator="Del",
+                      command=lambda: self._outline_action("delete"))
+        m.add_separator()
+        m.add_command(label="Ctrl+clique ou Shift+clique seleciona vários", state="disabled")
+        m.tk_popup(e.x_root, e.y_root)
+
+    def _outline_action(self, what: str):
+        tab = self.current()
+        sel = self.otree.selection()
+        if not tab or not sel:
+            return
+        lines = [self.otree.item(i, "values")[0] for i in sel]  # antes de reler: reler recria a lista
+        nodes = tab.nodes_at_lines(lines)
+        if what == "copy":
+            tab.copy_nodes(nodes)
+        else:
+            tab.delete_nodes(nodes)
+        return "break"
+
     def _outline_select(self, _e):
         sel = self.otree.selection()
         tab = self.current()
@@ -1455,6 +1820,25 @@ class App(tk.Tk):
             self.status(f"Idioma alterado para {name}. Reinicie o MUA Studio para aplicar.")
         self.lang_var.set(i18n.current())
 
+    def set_theme(self, mode: str):
+        """Grava o tema (claro/escuro) e oferece reiniciar: as cores são montadas na abertura."""
+        if mode == th.read_mode():
+            return
+        th.save_mode(mode)
+        name = dict(th.MODES)[mode]
+        if messagebox.askyesno("Tema", f"Tema alterado para {name}.\n\nO MUA Studio precisa ser reiniciado para aplicar. "
+                               "Reiniciar agora?", parent=self):
+            import subprocess
+            self.quit_app()  # pergunta dos arquivos não salvos; se cancelar, não reinicia
+            try:
+                alive = bool(self.winfo_exists())
+            except tk.TclError:
+                alive = False
+            if not alive:
+                subprocess.Popen([sys.executable] + sys.argv, cwd=os.path.dirname(os.path.abspath(__file__)))
+        else:
+            self.status(f"Tema alterado para {name}. Reinicie o MUA Studio para aplicar.")
+
     def goto_def(self):
         tab = self.current()
         if tab:
@@ -1523,15 +1907,27 @@ class App(tk.Tk):
     def npc_power(self, char=None, talent=None):
         return extras.NpcPowerDialog(self, char or self.selected_char(), talent)
 
-    def open_npcstat(self):
+    def npc_power_to(self, npc: pj.Character):
+        d = self.npc_power()
+        i = next((i for i, n in enumerate(d.npcs) if n.name == npc.name), -1)
+        if i >= 0:
+            d.dst_cb.current(i)
+            d.dst_changed()
+        return d
+
+    def open_npcstat(self, select: str | None = None):
         if not self.proj.resolve("data/npcstat"):
             return self.status("Esta pasta não tem data/npcstat")
         for t in self.tabs.tabs():
             w = self.nametowidget(t)
             if isinstance(w, extras.NpcstatTab):
                 self.tabs.select(w)
+                if select:
+                    w.select(select)
                 return w
         w = extras.NpcstatTab(self)
+        if select:
+            w.select(select)
         self.tabs.add(w, text="NPCStat", image=th.dot(th.ERR_SOFT, 14, 7), compound="left")
         self.tabs.select(w)
         return w
@@ -1541,6 +1937,48 @@ class App(tk.Tk):
         if not char or not char.talents_path:
             return self.status("Escolha um personagem (com arquivo de talentos) para organizar os poderes")
         return extras.OrganizeDialog(self, char)
+
+    def rename_effect(self, char, ref: str):
+        base = ref.replace("\\", "/").split("/")[-1]
+        new = simpledialog.askstring("Renomear efeito", f"Novo nome para effects/{ref}\n\nSó o nome fica na mesma pasta; "
+                                     "também aceita char/<pasta>/<nome>. Todo powerstyle, entidade, talento e pacote que cita "
+                                     "o efeito é atualizado junto.", initialvalue=base, parent=self)
+        if not new or not new.strip():
+            return
+        self.configure(cursor="watch")
+        self.update_idletasks()
+        try:
+            plan, sp, dp = ops.rename_effect_plan(char, ref, new)
+        finally:
+            self.configure(cursor="")
+        if plan.errors:
+            return messagebox.showerror("Renomear efeito", "\n".join(plan.errors), parent=self)
+        paths = [c.path for c in plan.changes] + [sp]
+        bad = [t for t in self.editors() if t.modified and any(os.path.normcase(t.path) == os.path.normcase(x) for x in paths)]
+        if bad:
+            return messagebox.showwarning("Salve antes", "Arquivos abertos com alterações não salvas:\n\n"
+                                          + "\n".join(os.path.basename(t.path) for t in bad), parent=self)
+        if not extras.confirm_plan(self, "Renomear efeito", plan.describe(char.proj), "Renomear"):
+            return
+        try:
+            written = ops.rename_effect_apply(plan, sp, dp)
+        except Exception as e:
+            return messagebox.showerror("Renomear efeito", f"Nada foi alterado.\n\n{e}", parent=self)
+        for t in list(self.editors()):
+            if os.path.normcase(t.path) == os.path.normcase(sp):  # a aba do arquivo antigo passa a ser a do novo
+                self.tabs.forget(t)
+                t.destroy()
+                self.open_file(dp)
+        extras.reload_tabs(self, written)
+        self.fill_characters()
+        new_ref = plan.info[0].split("->")[-1].strip().removeprefix("effects/")
+        self.status(f"Efeito renomeado para {new_ref}: {len(plan.changes)} arquivo(s) atualizados (com backup)")
+
+    def copy_resources(self, char=None, preselect=()):
+        return extras.ResourceCopyDialog(self, char or self.selected_char(), None, preselect)
+
+    def audio_editor(self, char=None):
+        return audio_ui.AudioEditor(self, char or self.selected_char())
 
     def anim_mixer(self, char=None):
         return extras.AnimMixer(self, char or self.selected_char())
@@ -1638,9 +2076,11 @@ class SheetTab(ttk.Frame):
         left.pack(side="left", fill="x", expand=True)
         r = tk.Frame(left, bg=BG)
         r.pack(anchor="w")
-        tk.Label(r, image=th.dot(th.char_color(c.name), 20, 12), bg=BG).pack(side="left")
-        tk.Label(r, text=c.display, font=th.H1, bg=BG, fg="#ffffff").pack(side="left", padx=(6, 12))
+        st_color, st_text = app.char_status(c)
+        tk.Label(r, image=th.dot(st_color, 20, 12), bg=BG).pack(side="left")
+        tk.Label(r, text=c.display, font=th.H1, bg=BG, fg=th.STRONG).pack(side="left", padx=(6, 12))
         th.chip(r, c.name, "red", font=th.MONO_S, padx=9, pady=2).pack(side="left")
+        tk.Label(r, text=st_text, font=th.UI_XS, bg=BG, fg=st_color).pack(side="left", padx=10)
         if proj is not app.proj:
             th.chip(r, proj.label, "dim", font=th.UI_XS, padx=8, pady=2).pack(side="left", padx=6)
         meta = tk.Frame(left, bg=BG)
@@ -1658,8 +2098,8 @@ class SheetTab(ttk.Frame):
         th.section_title(box, "Atributos base (herostat)")
         g = th.CardGrid(box, minw=128)
         g.pack(fill="x")
-        for lab, key, color in (("Corpo (body)", "body", "#ffffff"), ("Mente (mind)", "mind", "#ffffff"),
-                                ("Força (strength)", "strength", "#ffffff"), ("Nível", "level", "#ffffff"),
+        for lab, key, color in (("Corpo (body)", "body", th.STRONG), ("Mente (mind)", "mind", th.STRONG),
+                                ("Força (strength)", "strength", th.STRONG), ("Nível", "level", th.STRONG),
                                 ("Time", "team", th.OK), ("Autospend", "autospend", th.SYN_KEY),
                                 ("Moveset", "moveset1", FG), ("Menu", "menulocation", th.AMBER)):
             v = str(s.get(key, "") or "-")
@@ -1681,7 +2121,7 @@ class SheetTab(ttk.Frame):
                 cd = th.card(g)
                 row = tk.Frame(cd, bg=PANEL)
                 row.pack(fill="x", padx=12, pady=11)
-                tk.Label(row, text=name or "(sem nome)", font=th.UI_B, bg=PANEL, fg="#ffffff" if name else DIM).pack(side="left")
+                tk.Label(row, text=name or "(sem nome)", font=th.UI_B, bg=PANEL, fg=th.STRONG if name else DIM).pack(side="left")
                 tk.Label(row, text=num, font=th.MONO_S, bg=BG, fg=th.SYN_NUM, padx=7, pady=2, highlightthickness=1,
                          highlightbackground=LINE).pack(side="right")
                 g.add(cd)
@@ -1734,8 +2174,16 @@ class SheetTab(ttk.Frame):
             ml = tk.Label(cd, text=("moves: " + ",  ".join(f"{m.get('name')} ({m.get('animenum', '-')})" for m in mvs))
                           if mvs else "nenhum FightMove encontrado no powerstyle",
                           font=th.MONO_XS, bg=PANEL, fg=DIM, justify="left", anchor="w")
-            ml.pack(fill="x", padx=14, pady=(6, 12))
+            ml.pack(fill="x", padx=14, pady=(6, 0))
             labels.append(ml)
+            try:
+                pfx = ops.power_effects(c, tn)
+            except Exception:
+                pfx = []
+            el = tk.Label(cd, text=("efeitos: " + ",  ".join(r.split("/")[-1] for r in pfx)) if pfx else "efeitos: nenhum",
+                          font=th.MONO_XS, bg=PANEL, fg=th.SYN_PATH if pfx else DIM, justify="left", anchor="w")
+            el.pack(fill="x", padx=14, pady=(4, 12))
+            labels.append(el)
             self._wrap(cd, *labels)
             g.add(cd)
 
@@ -1766,7 +2214,7 @@ class SheetTab(ttk.Frame):
             cd = th.card(g, command=lambda tn=tn: app.open_talent(tn, c))
             hd = tk.Frame(cd, bg=PANEL)
             hd.pack(fill="x", padx=12, pady=(10, 0))
-            tk.Label(hd, text=x.get("descname") or tn, font=th.UI_B, bg=PANEL, fg="#ffffff").pack(side="left")
+            tk.Label(hd, text=x.get("descname") or tn, font=th.UI_B, bg=PANEL, fg=th.STRONG).pack(side="left")
             if x.get("type"):
                 th.chip(hd, x.get("type"), "purple", font=th.MONO_XS).pack(side="right")
             tk.Label(cd, text=tn, font=th.MONO_XS, bg=PANEL, fg=DIM, anchor="w").pack(fill="x", padx=12, pady=(2, 0))
@@ -1795,7 +2243,7 @@ class ExplainDialog(tk.Toplevel):
         tags = [t for t in (talent.get("descshort", ""), "Talento ativo" if talent.get("power") else "Talento") if t]
         th.chip(f, "  •  ".join(tags).upper(), "purple", font=th.MONO_XS, padx=8, pady=2).pack(anchor="w")
         tk.Label(f, text=talent.get("descname") or talent.get("name", ""), font=(th.H1[0], 18, "bold"), bg=PANEL,
-                 fg="#ffffff", anchor="w").pack(fill="x", pady=(6, 4))
+                 fg=th.STRONG, anchor="w").pack(fill="x", pady=(6, 4))
         desc = tk.Label(f, text=talent.get("description", "(sem descrição)"), font=th.UI, bg=PANEL, fg=FG,
                         justify="left", anchor="w")
         desc.pack(fill="x")
@@ -1808,7 +2256,25 @@ class ExplainDialog(tk.Toplevel):
             ll.pack(fill="x", padx=10, pady=8)
             wrap.append(ll)
         f.bind("<Configure>", lambda e: [w.configure(wraplength=max(200, e.width - 24)) for w in wrap])
+        try:
+            fx = ops.power_effects(char, talent.get("name", ""))
+        except Exception:
+            fx = []
         th.hline(f, pady=(14, 6))
+        tk.Label(f, text=f"Efeitos deste poder ({len(fx)})" if fx else "Este poder não usa efeitos", font=th.UI_SB, bg=PANEL,
+                 fg=th.SYN_PATH if fx else DIM, anchor="w").pack(fill="x")
+        if fx:
+            fl = tk.Frame(f, bg=PANEL)
+            fl.pack(fill="x", pady=(2, 0))
+            for i, ref in enumerate(fx):
+                p = char.proj.effect_path(ref)
+                lb = tk.Label(fl, text=ref, font=th.MONO_XS, bg=PANEL, fg=ACCENT if p else th.ERR_SOFT,
+                              cursor="hand2" if p else "", anchor="w")
+                lb.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 18))
+                if p:
+                    lb.bind("<Button-1>", lambda e, p=p: (app.open_file(p), self.destroy()))
+            extras.fit(self, 680, 470 + 18 * ((len(fx) + 1) // 2))
+        th.hline(f, pady=(10, 6))
         meta = tk.Frame(f, bg=PANEL)
         meta.pack(fill="x")
         tk.Label(meta, text=f"{char.display}   |   talento {talent.get('name', '')}" + (f"   |   move {move_name}" if move_name else ""),
@@ -1869,10 +2335,10 @@ class ColorsDialog(tk.Toplevel):
             c.create_rectangle(4, y - 4, max(c.winfo_width(), 600) - 6, y + 28, fill=SEL if sel else PANEL,
                                outline=ACCENT if sel else LINE)
             c.create_rectangle(12, y + 1, 52, y + 23, fill=pj.color_hex(v), outline="#000000")
-            c.create_text(64, y + 6, anchor="w", fill="#ffffff" if sel else FG, font=th.MONO + ("bold",), text=str(v))
+            c.create_text(64, y + 6, anchor="w", fill=th.STRONG if sel else FG, font=th.MONO + ("bold",), text=str(v))
             c.create_text(64 + 11 * 8, y + 6, anchor="w", fill=DIM, font=th.MONO_S,
                           text=f"RGB {r}, {g}, {b}  |  alfa {a}")
-            c.create_text(64, y + 19, anchor="w", fill="#a9c7ff" if sel else DIM, font=th.UI_XS,
+            c.create_text(64, y + 19, anchor="w", fill=th.INFO_FG if sel else DIM, font=th.UI_XS,
                           text=f"usada {len(vals[v])}x (primeira na linha {vals[v][0]})")
         if not self.rows:
             c.create_text(14, 20, anchor="w", fill=DIM, font=UI, text="Este arquivo não tem propriedades de cor.")
@@ -2002,9 +2468,9 @@ class CopyPowerDialog(tk.Toplevel):
         ttk.Label(rf, text="Prévia (nada é gravado antes de clicar em Aplicar)", style="Dim.TLabel").pack(anchor="w")
         self.out = i18n.mark_output(tk.Text(rf, bg=BG, fg=FG, font=("Consolas", 10), wrap="word", borderwidth=0, highlightthickness=0, padx=8, pady=6))
         self.out.pack(fill="both", expand=True, pady=4)
-        self.out.tag_configure("warn", foreground="#e0b040")
-        self.out.tag_configure("err", foreground="#ff8080")
-        self.out.tag_configure("head", foreground="#7fb4f0")
+        self.out.tag_configure("warn", foreground=th.WARN)
+        self.out.tag_configure("err", foreground=th.ERR_SOFT)
+        self.out.tag_configure("head", foreground=th.SYN_KEY)
         mid.add(rf, weight=3)
 
         bot = ttk.Frame(self, padding=12)

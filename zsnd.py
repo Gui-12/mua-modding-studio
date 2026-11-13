@@ -183,6 +183,147 @@ class Bank:
         """True se regravar o banco sem mudanças reproduz o arquivo byte a byte."""
         return self.to_bytes() == self.original
 
+    # ---- edição (editor de áudio) ----------------------------------------------------
+    def sample_of(self, sound_index: int) -> int:
+        return struct.unpack_from("<H", self.sounds[sound_index][1], 0)[0]
+
+    def file_of(self, sound_index: int) -> int:
+        return struct.unpack_from("<H", self.samples[self.sample_of(sound_index)][1], 0)[0]
+
+    def rate(self, sound_index: int) -> int:
+        r = struct.unpack_from("<I", self.samples[self.sample_of(sound_index)][1], 4)[0]
+        return r if 4000 <= r <= 96000 else 22050
+
+    def fmt(self, sound_index: int) -> int:
+        return self.files[self.file_of(sound_index)][1]
+
+    def pcm(self, sound_index: int) -> list[int]:
+        data = self.audio(sound_index)
+        if self.fmt(sound_index) == FMT_ADPCM:
+            return adpcm_decode(data)
+        n = len(data) // 2
+        return list(struct.unpack(f"<{n}h", data[:n * 2]))
+
+    def duration(self, sound_index: int) -> float:
+        data = self.audio(sound_index)
+        n = len(data) * 2 if self.fmt(sound_index) == FMT_ADPCM else len(data) // 2
+        return n / self.rate(sound_index)
+
+    def wav_bytes(self, sound_index: int) -> bytes:
+        return make_wav(self.pcm(sound_index), self.rate(sound_index))
+
+    def add_pcm(self, new_hash: int, samples: list[int], rate: int, filename: str):
+        """Som novo a partir de áudio PCM 16 bits mono (codificado em ADPCM, como os do jogo)."""
+        if self.sounds:
+            srec, mrec = bytearray(self.sounds[0][1]), bytearray(self.samples[self.sample_of(0)][1])
+        else:
+            srec = bytearray(bytes.fromhex("000000107f001f00007f007f") + b"\0" * 12)
+            mrec = bytearray(b"\0" * SAMPLE_REC)
+        name = os.path.basename(filename).encode("latin-1", "replace")[:63]
+        self.files.append([self._free(pjw_hash(os.path.basename(filename)), self.files), FMT_ADPCM, name, adpcm_encode(samples), b""])
+        struct.pack_into("<H", mrec, 0, len(self.files) - 1)
+        struct.pack_into("<I", mrec, 4, int(rate))
+        self.samples.append([self._free(pjw_hash(filename + "#s"), self.samples), mrec])
+        if len(self.samples) - 1 > 0xFFFF:
+            raise ZsndError("banco cheio (mais de 65535 samples)")
+        struct.pack_into("<H", srec, 0, len(self.samples) - 1)
+        self.sounds.append([new_hash, srec])
+
+    def rebuilt(self, keep: list[int]) -> "Bank":
+        """Banco novo só com os sons em 'keep' (na ordem dada); samples e áudio sem uso saem junto."""
+        b = Bank.empty(self.path)
+        b.original, b.size_field = self.original, self.size_field
+        cache: dict = {}
+        for i in keep:
+            b.add_from(self, i, self.sounds[i][0], cache)
+        return b
+
+    def sort_tables(self):
+        """Tabelas de hash em ordem crescente (o jogo procura os sons por busca binária)."""
+        self.orders = [sorted(range(len(t)), key=lambda i, t=t: t[i][0]) for t in (self.sounds, self.samples, self.files)]
+
+
+FMT_ADPCM = 106  # IMA ADPCM sem cabeçalho, 4 bits, nibble baixo primeiro, começando em 0 (conferido contra o wav exportado pelo zsmeditor)
+_STEP = [7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118,
+         130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060,
+         1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484,
+         7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767]
+_IDX = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8]
+
+
+def _ima_step(n: int, p: int, i: int) -> tuple[int, int]:
+    s = _STEP[i]
+    d = s >> 3
+    if n & 1:
+        d += s >> 2
+    if n & 2:
+        d += s >> 1
+    if n & 4:
+        d += s
+    p = p - d if n & 8 else p + d
+    return max(-32768, min(32767, p)), max(0, min(88, i + _IDX[n]))
+
+
+def adpcm_decode(data: bytes) -> list[int]:
+    out, p, i = [], 0, 0
+    for byte in data:
+        for n in (byte & 15, byte >> 4):
+            p, i = _ima_step(n, p, i)
+            out.append(p)
+    return out
+
+
+def adpcm_encode(samples: list[int]) -> bytes:
+    out, p, i = bytearray(), 0, 0
+    nibbles = []
+    for x in samples:
+        diff = x - p
+        n = 8 if diff < 0 else 0
+        diff = abs(diff)
+        s = _STEP[i]
+        if diff >= s:
+            n |= 4
+            diff -= s
+        if diff >= s >> 1:
+            n |= 2
+            diff -= s >> 1
+        if diff >= s >> 2:
+            n |= 1
+        p, i = _ima_step(n, p, i)  # acompanha o decodificador para não acumular erro
+        nibbles.append(n)
+    if len(nibbles) % 2:
+        nibbles.append(0)
+    for a, b in zip(nibbles[0::2], nibbles[1::2]):
+        out.append(a | (b << 4))
+    return bytes(out)
+
+
+def make_wav(samples: list[int], rate: int) -> bytes:
+    data = struct.pack(f"<{len(samples)}h", *samples)
+    return (b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+            + b"data" + struct.pack("<I", len(data)) + data)
+
+
+def read_wav(path: str) -> tuple[list[int], int, str]:
+    """Lê um .wav PCM (8/16 bits, mono ou estéreo) e devolve (amostras 16 bits mono, taxa, aviso)."""
+    import wave
+    with wave.open(path, "rb") as w:
+        ch, width, rate, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+        raw = w.readframes(n)
+    if width == 2:
+        vals = list(struct.unpack(f"<{len(raw) // 2}h", raw[:len(raw) // 2 * 2]))
+    elif width == 1:
+        vals = [(b - 128) << 8 for b in raw]
+    else:
+        raise ZsndError(f"o wav tem {width * 8} bits; use 16 bits (ou 8)")
+    note = []
+    if ch > 1:
+        vals = [sum(vals[k:k + ch]) // ch for k in range(0, len(vals) - ch + 1, ch)]
+        note.append(f"{ch} canais misturados em mono")
+    if rate != 22050:
+        note.append(f"taxa {rate} Hz (o jogo usa quase sempre 22050)")
+    return vals, rate, "; ".join(note)
+
 
 def bank_path(root: str, bank: str) -> str | None:
     """sounds/<idioma>/<1a letra>/<2a letra>/<banco>.zsm|.zss dentro de uma pasta de jogo."""

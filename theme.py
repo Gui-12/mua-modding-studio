@@ -5,33 +5,84 @@ Não importa app.py nem extras.py, então qualquer módulo pode importar daqui."
 from __future__ import annotations
 
 import ctypes
+import json
+import os
 import sys
 import zlib
 import tkinter as tk
 from tkinter import ttk, font as tkfont
 
-# ------------------------------------------------------------------ cores
-BG = "#16171a"        # fundo do editor e das páginas
-PANEL = "#1e2024"     # barras e painéis laterais
-SURFACE = "#26292e"   # botões, cartões, item com o mouse em cima
-LINE = "#2f3238"      # bordas e divisórias
-HOVER = "#363940"
-FG = "#dfe1e5"
-DIM = "#8b8f98"
-FAINT = "#5d6068"
-WHITE = "#ffffff"
-ACCENT = "#4a88ff"
-ACCENT_HOVER = "#6a9dff"
-SEL = "#263b5e"
+# ------------------------------------------------------------------ cores (tema escuro / claro)
+# A escolha fica em settings.json (chave "theme") e vale a partir da próxima abertura,
+# porque as cores são lidas pelos outros módulos na importação (from theme import BG...).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+SETTINGS = os.path.join(_HERE, "settings.json")
+MODES = (("dark", "Escuro"), ("light", "Claro"))
 
-SYN_BLOCK, SYN_KEY, SYN_VAR = "#e0a45c", "#7fb4f0", "#d98ee0"
-SYN_NUM, SYN_PATH, SYN_COMMENT, SYN_PUNCT = "#9bd88f", "#e6d27a", "#6a8a5a", "#6d7178"
 
-ERR, ERR_SOFT, ERR_BG = "#ff5d5d", "#ff8080", "#3a2023"
-WARN, WARN_SOFT, WARN_BG = "#e0b040", "#f0c869", "#2e2a1d"
-OK, OK_SOFT, OK_BG = "#34d399", "#a7f3d0", "#13302a"
-PINK, PURPLE, AMBER = "#f472b6", "#c084fc", "#fbbf24"
-CURLINE = "#1d1e22"
+def read_mode() -> str:
+    env = os.environ.get("MUA_THEME")  # para testes: força o tema sem mexer no settings.json
+    if env in dict(MODES):
+        return env
+    try:
+        with open(SETTINGS, encoding="utf-8") as f:
+            m = json.load(f).get("theme", "dark")
+        return m if m in dict(MODES) else "dark"
+    except Exception:
+        return "dark"
+
+
+def save_mode(mode: str):
+    """Grava o tema preservando o resto do settings.json."""
+    data = {}
+    try:
+        with open(SETTINGS, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        pass
+    data["theme"] = mode
+    try:
+        with open(SETTINGS, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+_DARK = dict(
+    BG="#16171a", PANEL="#1e2024", SURFACE="#26292e", LINE="#2f3238", HOVER="#363940",
+    FG="#dfe1e5", DIM="#8b8f98", FAINT="#5d6068", STRONG="#ffffff",
+    ACCENT="#4a88ff", ACCENT_HOVER="#6a9dff", ACCENT_PRESS="#3b78ee", SEL="#263b5e", SEL_FG="#ffffff",
+    SCROLL="#363940", SCROLL_HOVER="#4a4e58",
+    SYN_BLOCK="#e0a45c", SYN_KEY="#7fb4f0", SYN_VAR="#d98ee0", SYN_NUM="#9bd88f", SYN_PATH="#e6d27a",
+    SYN_COMMENT="#6a8a5a", SYN_PUNCT="#6d7178",
+    ERR="#ff5d5d", ERR_SOFT="#ff8080", ERR_BG="#3a2023",
+    WARN="#e0b040", WARN_SOFT="#f0c869", WARN_BG="#2e2a1d",
+    OK="#34d399", OK_SOFT="#a7f3d0", OK_BG="#13302a",
+    PINK="#f472b6", PURPLE="#c084fc", AMBER="#fbbf24",
+    CURLINE="#1d1e22", FOUND_BG="#5a4b1a", BLOCKSEL_BG="#3d3418", SHEET_FG="#fcd34d",
+    INFO_FG="#a9c7ff", PURPLE_FG="#d8b4fe", RED_FG="#fca5a5", BANNER_WARN_FG="#f3dc9b", BANNER_INFO_FG="#bcd3ff",
+    # bolinhas de status dos personagens
+    ST_GAME="#22c55e", ST_OUT="#ef4444", ST_OTHER="#3b82f6", ST_CREATED="#facc15",
+)
+_LIGHT = dict(
+    BG="#ffffff", PANEL="#f4f5f7", SURFACE="#e9ebef", LINE="#d7dae0", HOVER="#dde0e6",
+    FG="#1f2328", DIM="#5c636e", FAINT="#969ca6", STRONG="#0b0d10",
+    ACCENT="#2f6fec", ACCENT_HOVER="#4a86ff", ACCENT_PRESS="#245dcc", SEL="#d3e2ff", SEL_FG="#0b0d10",
+    SCROLL="#c9cdd4", SCROLL_HOVER="#a9aeb7",
+    SYN_BLOCK="#b45309", SYN_KEY="#1d5fb8", SYN_VAR="#a21caf", SYN_NUM="#15803d", SYN_PATH="#8a6a00",
+    SYN_COMMENT="#5f7f4f", SYN_PUNCT="#8b9099",
+    ERR="#d93636", ERR_SOFT="#c62828", ERR_BG="#fde4e4",
+    WARN="#c58a12", WARN_SOFT="#8a5a00", WARN_BG="#fdf3dc",
+    OK="#15a36a", OK_SOFT="#0f7a4f", OK_BG="#ddf5ea",
+    PINK="#db2777", PURPLE="#9333ea", AMBER="#d97706",
+    CURLINE="#f2f6fc", FOUND_BG="#ffe8a3", BLOCKSEL_BG="#fff3c4", SHEET_FG="#b45309",
+    INFO_FG="#1f4fae", PURPLE_FG="#7e22ce", RED_FG="#b91c1c", BANNER_WARN_FG="#6b4700", BANNER_INFO_FG="#1f4fae",
+    ST_GAME="#16a34a", ST_OUT="#dc2626", ST_OTHER="#2563eb", ST_CREATED="#eab308",
+)
+MODE = read_mode()
+_P = _LIGHT if MODE == "light" else _DARK
+globals().update(_P)
+WHITE = "#ffffff"   # texto sobre o azul de destaque (igual nos dois temas)
 
 CHAR_COLORS = ("#ef4444", "#facc15", "#f59e0b", "#10b981", "#3b82f6", "#a855f7",
                "#ec4899", "#14b8a6", "#f97316", "#84cc16", "#6366f1", "#e11d48")
@@ -64,6 +115,7 @@ I = {
     "robot": "", "package": "", "list": "", "more": "", "edit": "",
     "sliders": "", "info": "", "tree": "",
 }
+I.update(sun="", moon="")
 GLYPH_FALLBACK = {"close": "✕", "right": "›", "down": "▾", "warn": "!", "error": "×", "check": "✓",
                   "up_arrow": "↑", "down_arrow": "↓", "search": "⌕"}
 
@@ -91,7 +143,7 @@ def dark_titlebar(win: tk.Misc):
         win.update_idletasks()
         hwnd = int(win.wm_frame(), 16)
         dwm = ctypes.windll.dwmapi
-        on = ctypes.c_int(1)
+        on = ctypes.c_int(1 if MODE == "dark" else 0)
         for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (nova e antiga)
             if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(on), ctypes.sizeof(on)) == 0:
                 break
@@ -184,7 +236,7 @@ def setup(root: tk.Tk):
     st.theme_use("clam")
     st.configure(".", background=PANEL, foreground=FG, fieldbackground=BG, bordercolor=LINE, lightcolor=PANEL,
                  darkcolor=PANEL, troughcolor=BG, font=UI, focuscolor=LINE, selectbackground=SEL,
-                 selectforeground=WHITE, insertcolor=FG, insertwidth=1)
+                 selectforeground=SEL_FG, insertcolor=FG, insertwidth=1)
     st.map(".", foreground=[("disabled", FAINT)])
     for s, bg in (("TFrame", PANEL), ("Bg.TFrame", BG), ("Surface.TFrame", SURFACE)):
         st.configure(s, background=bg)
@@ -197,7 +249,7 @@ def setup(root: tk.Tk):
     # árvores e listas
     st.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=FG, borderwidth=0,
                  rowheight=26, font=UI, bordercolor=PANEL, lightcolor=PANEL, darkcolor=PANEL, indent=16)
-    st.map("Treeview", background=[("selected", SEL)], foreground=[("selected", WHITE)])
+    st.map("Treeview", background=[("selected", SEL)], foreground=[("selected", SEL_FG)])
     st.configure("Treeview.Heading", background=PANEL, foreground=DIM, relief="flat", font=UI_S,
                  bordercolor=LINE, lightcolor=PANEL, darkcolor=PANEL, padding=(6, 3))
     st.map("Treeview.Heading", background=[("active", SURFACE)])
@@ -208,10 +260,10 @@ def setup(root: tk.Tk):
     # abas laterais (pílulas)
     st.configure("TNotebook", background=PANEL, borderwidth=0, tabmargins=(6, 6, 6, 4), bordercolor=PANEL,
                  lightcolor=PANEL, darkcolor=PANEL)
-    st.configure("TNotebook.Tab", background=PANEL, foreground=DIM, padding=(8, 4), borderwidth=0, font=UI_S,
+    st.configure("TNotebook.Tab", background=PANEL, foreground=DIM, padding=(6, 4), borderwidth=0, font=UI_S,
                  bordercolor=PANEL, lightcolor=PANEL, darkcolor=PANEL)
     st.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", mix(PANEL, SURFACE, .5))],
-           foreground=[("selected", WHITE), ("active", FG)], bordercolor=[("selected", SURFACE)],
+           foreground=[("selected", STRONG), ("active", FG)], bordercolor=[("selected", SURFACE)],
            lightcolor=[("selected", SURFACE)], expand=[("selected", (0, 0, 0, 0))])
     st.layout("TNotebook.Tab", [("Notebook.tab", {"sticky": "nswe", "children": [
         ("Notebook.padding", {"side": "top", "sticky": "nswe", "children": [
@@ -245,7 +297,7 @@ def setup(root: tk.Tk):
             ("Notebook.label", {"side": "left", "sticky": ""}),
             ("Notebook.tabclose", {"side": "left", "sticky": ""})]})]})])
     st.configure("Closable.TNotebook.Tab", padding=(10, 6, 4, 5), foreground=DIM, font=MONO_S, background=PANEL)
-    st.map("Closable.TNotebook.Tab", foreground=[("selected", WHITE), ("active", FG)],
+    st.map("Closable.TNotebook.Tab", foreground=[("selected", STRONG), ("active", FG)],
            expand=[("selected", (0, 0, 0, 0))], background=[("selected", BG)])
 
     # botões
@@ -256,9 +308,9 @@ def setup(root: tk.Tk):
            foreground=[("disabled", FAINT)], focuscolor=[("active", LINE)])
     st.configure("Accent.TButton", background=ACCENT, foreground=WHITE, bordercolor=ACCENT, lightcolor=ACCENT,
                  darkcolor=ACCENT, focuscolor=ACCENT, font=UI_B)
-    st.map("Accent.TButton", background=[("disabled", SURFACE), ("pressed", "#3b78ee"), ("active", ACCENT_HOVER)],
-           lightcolor=[("pressed", "#3b78ee"), ("active", ACCENT_HOVER)],
-           darkcolor=[("pressed", "#3b78ee"), ("active", ACCENT_HOVER)],
+    st.map("Accent.TButton", background=[("disabled", SURFACE), ("pressed", ACCENT_PRESS), ("active", ACCENT_HOVER)],
+           lightcolor=[("pressed", ACCENT_PRESS), ("active", ACCENT_HOVER)],
+           darkcolor=[("pressed", ACCENT_PRESS), ("active", ACCENT_HOVER)],
            bordercolor=[("disabled", LINE)], focuscolor=[("active", ACCENT_HOVER)])
     st.configure("TMenubutton", background=SURFACE, foreground=FG, padding=(10, 5), bordercolor=LINE,
                  lightcolor=SURFACE, darkcolor=SURFACE, arrowcolor=DIM, relief="flat")
@@ -293,23 +345,23 @@ def setup(root: tk.Tk):
         ("Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
     st.layout("Horizontal.TScrollbar", [("Horizontal.Scrollbar.trough", {"sticky": "ew", "children": [
         ("Horizontal.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
-    st.configure("TScrollbar", troughcolor=BG, background=HOVER, bordercolor=BG, lightcolor=HOVER,
-                 darkcolor=HOVER, arrowsize=9, gripcount=0, relief="flat")
-    st.map("TScrollbar", background=[("pressed", "#4a4e58"), ("active", "#4a4e58")],
-           lightcolor=[("pressed", "#4a4e58"), ("active", "#4a4e58")],
-           darkcolor=[("pressed", "#4a4e58"), ("active", "#4a4e58")])
+    st.configure("TScrollbar", troughcolor=BG, background=SCROLL, bordercolor=BG, lightcolor=SCROLL,
+                 darkcolor=SCROLL, arrowsize=9, gripcount=0, relief="flat")
+    st.map("TScrollbar", background=[("pressed", SCROLL_HOVER), ("active", SCROLL_HOVER)],
+           lightcolor=[("pressed", SCROLL_HOVER), ("active", SCROLL_HOVER)],
+           darkcolor=[("pressed", SCROLL_HOVER), ("active", SCROLL_HOVER)])
     st.configure("TPanedwindow", background=LINE)
     st.configure("Sash", sashthickness=3, gripcount=0, background=LINE, lightcolor=LINE, bordercolor=LINE)
     st.configure("TSeparator", background=LINE)
 
     for k, v in (("*TCombobox*Listbox.background", BG), ("*TCombobox*Listbox.foreground", FG),
-                 ("*TCombobox*Listbox.selectBackground", SEL), ("*TCombobox*Listbox.selectForeground", WHITE),
+                 ("*TCombobox*Listbox.selectBackground", SEL), ("*TCombobox*Listbox.selectForeground", SEL_FG),
                  ("*TCombobox*Listbox.font", UI), ("*Menu.background", SURFACE), ("*Menu.foreground", FG),
-                 ("*Menu.activeBackground", SEL), ("*Menu.activeForeground", WHITE), ("*Menu.borderWidth", 0),
+                 ("*Menu.activeBackground", SEL), ("*Menu.activeForeground", SEL_FG), ("*Menu.borderWidth", 0),
                  ("*Menu.activeBorderWidth", 0), ("*Menu.relief", "flat"), ("*Menu.font", UI),
                  ("*Menu.disabledForeground", FAINT), ("*Menu.selectColor", ACCENT),
                  ("*Listbox.background", BG), ("*Listbox.foreground", FG), ("*Listbox.selectBackground", SEL),
-                 ("*Listbox.selectForeground", WHITE), ("*Listbox.highlightThickness", 0), ("*Listbox.font", UI),
+                 ("*Listbox.selectForeground", SEL_FG), ("*Listbox.highlightThickness", 0), ("*Listbox.font", UI),
                  ("*Toplevel.background", PANEL)):
         root.option_add(k, v)
 
@@ -332,7 +384,7 @@ class ToolButton(tk.Frame):
 
     def __init__(self, parent, text="", icon=None, command=None, kbd=None, kind="normal", icon_color=None,
                  bg=PANEL, font=None, padx=9, pady=4):
-        pal = {"accent": (ACCENT, ACCENT_HOVER, "#3b78ee", ACCENT, WHITE),
+        pal = {"accent": (ACCENT, ACCENT_HOVER, ACCENT_PRESS, ACCENT, WHITE),
                "normal": (SURFACE, LINE, HOVER, LINE, FG),
                "ghost": (bg, SURFACE, HOVER, bg, DIM)}[kind]
         self._n, self._h, self._p, border, fg = pal
@@ -351,7 +403,7 @@ class ToolButton(tk.Frame):
             self._parts.append(tl)
             self.label = tl
         if kbd:
-            kb, kf = ("#3a6fd6", "#dbe6ff") if kind == "accent" else (BG, DIM)
+            kb, kf = (ACCENT_PRESS, "#dbe6ff") if kind == "accent" else (BG, DIM)
             kl = tk.Label(self, text=kbd, font=MONO_XS, bg=kb, fg=kf, padx=4)
             kl.pack(side="left", padx=(2, padx), pady=pady)
             kl._keep_bg = True
@@ -406,9 +458,9 @@ class IconButton(tk.Label):
 def chip(parent, text, kind="dim", bg=None, font=None, padx=6, pady=1) -> tk.Label:
     """Etiqueta colorida: err | warn | ok | info | dim | purple | amber."""
     colors = {"err": (mix(PANEL, ERR, .16), ERR_SOFT), "warn": (mix(PANEL, WARN, .16), WARN_SOFT),
-              "ok": (mix(PANEL, OK, .12), OK), "info": (SEL, "#a9c7ff"), "dim": (SURFACE, DIM),
-              "purple": (mix(PANEL, PURPLE, .16), "#d8b4fe"), "amber": (mix(PANEL, AMBER, .14), AMBER),
-              "red": (mix(PANEL, "#ef4444", .2), "#fca5a5"), "kbd": (BG, DIM)}
+              "ok": (mix(PANEL, OK, .12), OK_SOFT if MODE == "light" else OK), "info": (SEL, INFO_FG), "dim": (SURFACE, DIM),
+              "purple": (mix(PANEL, PURPLE, .16), PURPLE_FG), "amber": (mix(PANEL, AMBER, .14), AMBER),
+              "red": (mix(PANEL, "#ef4444", .2), RED_FG), "kbd": (BG, DIM)}
     b, f = colors.get(kind, colors["dim"])
     return tk.Label(parent, text=text, bg=bg or b, fg=f, font=font or MONO_XS, padx=padx, pady=pady)
 
@@ -427,9 +479,9 @@ def hline(parent, color=LINE, **pack):
 
 class Banner(tk.Frame):
     """Faixa de aviso no topo do editor (amarela = atenção, verde = ok, azul = info)."""
-    KINDS = {"warn": (mix(BG, AMBER, .13), mix(BG, AMBER, .32), AMBER, "#f3dc9b", "warn"),
+    KINDS = {"warn": (mix(BG, AMBER, .13), mix(BG, AMBER, .32), AMBER, BANNER_WARN_FG, "warn"),
              "ok": (mix(BG, OK, .1), mix(BG, OK, .28), OK, OK_SOFT, "check"),
-             "info": (mix(BG, ACCENT, .12), mix(BG, ACCENT, .3), ACCENT, "#bcd3ff", "info")}
+             "info": (mix(BG, ACCENT, .12), mix(BG, ACCENT, .3), ACCENT, BANNER_INFO_FG, "info")}
 
     def __init__(self, parent):
         super().__init__(parent, bg=self.KINDS["warn"][0])
@@ -474,7 +526,7 @@ class SearchEntry(tk.Frame):
         tk.Label(self, text=glyph("search"), font=ICON_S, bg=bg, fg=DIM).pack(side="left", padx=(8, 2))
         self.entry = tk.Entry(self, textvariable=textvariable, bg=bg, fg=FG, insertbackground=FG, relief="flat",
                               font=font or UI_S, highlightthickness=0, borderwidth=0,
-                              selectbackground=SEL, selectforeground=WHITE)
+                              selectbackground=SEL, selectforeground=SEL_FG)
         self.entry.pack(side="left", fill="x", expand=True, padx=(2, 6), ipady=4)
         self.ph = tk.Label(self, text=placeholder, bg=bg, fg=FAINT, font=font or UI_S, cursor="xterm")
         self.ph.bind("<Button-1>", lambda e: self.entry.focus_set())
@@ -522,7 +574,7 @@ class Header(tk.Frame):
         logo = tk.Frame(row, bg=PANEL)
         logo.pack(side="left", padx=(2, 10))
         tk.Label(logo, text="M", font=(UI_B[0], 9, "bold"), bg=ACCENT, fg=WHITE, width=2).pack(side="left")
-        tk.Label(logo, text="MUA Studio", font=UI_B, bg=PANEL, fg=WHITE).pack(side="left", padx=(6, 0))
+        tk.Label(logo, text="MUA Studio", font=UI_B, bg=PANEL, fg=STRONG).pack(side="left", padx=(6, 0))
         self.menu_btns = []
         for label, menu in menus:
             b = ToolButton(row, text=label, kind="ghost", bg=PANEL, padx=7, pady=1, font=UI_S)
@@ -587,24 +639,60 @@ class StatusBar(tk.Frame):
 
 
 class FindBar(tk.Frame):
-    """Localizar flutuante (canto superior direito do editor)."""
+    """Localizar / substituir flutuante (canto superior direito do editor)."""
 
-    def __init__(self, parent, var: tk.StringVar, on_next, on_prev, on_close):
+    def __init__(self, parent, var: tk.StringVar, on_next, on_prev, on_close,
+                 replace_var: tk.StringVar | None = None, on_replace=None, on_replace_all=None, case_var: tk.BooleanVar | None = None):
         super().__init__(parent, bg=PANEL, highlightthickness=1, highlightbackground=HOVER)
-        tk.Label(self, text=glyph("search"), font=ICON_S, bg=PANEL, fg=DIM).pack(side="left", padx=(9, 4), pady=6)
-        box = tk.Frame(self, bg=BG, highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT)
-        box.pack(side="left", pady=5)
-        self.entry = tk.Entry(box, textvariable=var, width=26, bg=BG, fg=FG, insertbackground=FG, relief="flat",
-                              font=MONO_S, highlightthickness=0, borderwidth=0, selectbackground=SEL,
-                              selectforeground=WHITE)
-        self.entry.pack(padx=6, ipady=3)
-        self.entry.bind("<FocusIn>", lambda e: box.configure(highlightbackground=ACCENT), add="+")
-        self.entry.bind("<FocusOut>", lambda e: box.configure(highlightbackground=LINE), add="+")
-        self.info = tk.Label(self, text="Enter / F3", font=UI_XS, bg=PANEL, fg=DIM, padx=6)
+
+        def field(row, v, width=26):
+            box = tk.Frame(row, bg=BG, highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT)
+            box.pack(side="left", pady=5)
+            e = tk.Entry(box, textvariable=v, width=width, bg=BG, fg=FG, insertbackground=FG, relief="flat",
+                         font=MONO_S, highlightthickness=0, borderwidth=0, selectbackground=SEL, selectforeground=SEL_FG)
+            e.pack(padx=6, ipady=3)
+            e.bind("<FocusIn>", lambda ev: box.configure(highlightbackground=ACCENT), add="+")
+            e.bind("<FocusOut>", lambda ev: box.configure(highlightbackground=LINE), add="+")
+            return e
+
+        r1 = tk.Frame(self, bg=PANEL)
+        r1.pack(fill="x")
+        self.toggle = IconButton(r1, "right", self.toggle_replace, tip="Substituir")
+        self.toggle.pack(side="left", padx=(5, 0))
+        tk.Label(r1, text=glyph("search"), font=ICON_S, bg=PANEL, fg=DIM).pack(side="left", padx=(2, 4), pady=6)
+        self.entry = field(r1, var)
+        self.case_var = case_var or tk.BooleanVar(value=True)
+        self.case_btn = tk.Label(r1, text="Aa", font=UI_XS, bg=PANEL, padx=5, cursor="hand2")
+        self.case_btn.pack(side="left", padx=(4, 0))
+        self.case_btn.bind("<ButtonRelease-1>", lambda e: (self.case_var.set(not self.case_var.get()), self._paint_case()))
+        self._paint_case()
+        self.info = tk.Label(r1, text="Enter / F3", font=UI_XS, bg=PANEL, fg=DIM, padx=6)
         self.info.pack(side="left")
-        IconButton(self, "up_arrow", on_prev).pack(side="left")
-        IconButton(self, "down_arrow", on_next).pack(side="left")
-        IconButton(self, "close", on_close, hot=ERR).pack(side="left", padx=(0, 5))
+        IconButton(r1, "up_arrow", on_prev).pack(side="left")
+        IconButton(r1, "down_arrow", on_next).pack(side="left")
+        IconButton(r1, "close", on_close, hot=ERR).pack(side="left", padx=(0, 5))
+        self.r2 = tk.Frame(self, bg=PANEL)
+        self.replace_var = replace_var or tk.StringVar()
+        tk.Label(self.r2, text="⇄", font=UI_S, bg=PANEL, fg=DIM).pack(side="left", padx=(31, 4))
+        self.replace_entry = field(self.r2, self.replace_var)
+        for text, cmd in (("Substituir próximo", on_replace), ("Substituir todos", on_replace_all)):
+            ToolButton(self.r2, text, None, cmd, kind="normal", padx=6, pady=1, font=UI_XS).pack(side="left", padx=(6, 0), pady=4)
+        self.replace_shown = False
+
+    def _paint_case(self):
+        on = self.case_var.get()
+        self.case_btn.configure(fg=ACCENT if on else DIM, bg=SURFACE if on else PANEL)
+
+    def show_replace(self, on: bool = True):
+        self.replace_shown = on
+        if on:
+            self.r2.pack(fill="x", padx=(0, 6))
+        else:
+            self.r2.pack_forget()
+        self.toggle.configure(text=glyph("down" if on else "right"))
+
+    def toggle_replace(self):
+        self.show_replace(not self.replace_shown)
 
 
 class ScrollFrame(tk.Frame):
@@ -705,7 +793,7 @@ def dialog_header(win, title, icon=None, color=ACCENT):
     row.pack(fill="x", padx=16, pady=9)
     if icon:
         tk.Label(row, text=glyph(icon), font=ICON, bg=bg, fg=color).pack(side="left", padx=(0, 8))
-    tk.Label(row, text=title, font=UI_B, bg=bg, fg=WHITE).pack(side="left")
+    tk.Label(row, text=title, font=UI_B, bg=bg, fg=STRONG).pack(side="left")
     hline(f)
     return f
 

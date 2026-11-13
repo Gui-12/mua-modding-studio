@@ -43,6 +43,8 @@ def find_game_root(start: str) -> str | None:
 
 
 class Character:
+    is_npc = False  # True para os personagens que vêm do npcstat
+
     def __init__(self, proj: "Project", stats: Node):
         self.proj = proj
         self.stats = stats
@@ -252,6 +254,8 @@ class Project:
         c = getattr(self, "_npcs", None)
         if c is None or c[0] != mt:
             out = [Character(self, s) for s in self.load(p).children if s.name == "stats" and s.get("name") and s.get("powerstyle")]
+            for x in out:
+                x.is_npc = True
             out.sort(key=lambda x: (x.display.lower(), x.name.lower()))
             self._npcs = c = (mt, out)
         return c[1]

@@ -134,6 +134,11 @@ def character_files(char: Character, with_assets: bool = True) -> tuple[list[str
             elif c.name == "texture":
                 add_any(_asset_candidates(fn, ("", "textures/")), fn)
             elif c.name in ("xml", "xml_talents", "fightstyle"):
+                base = strip_ext(fn.replace("\\", "/")).split("/")[-1].lower()
+                own = {char.name.lower(), re.sub(r"^\d+_", "", char.anims or "").lower(),
+                       re.sub(r"^ps_", "", char.powerstyle or "", flags=re.I).lower()} - {""}
+                if "/fightstyles/" in "/" + fn.replace("\\", "/").lower() and not any(s in base for s in own):
+                    continue  # fightstyle comum do jogo (fightstyle_villain, fightstyle_default...): não vai junto
                 add_bin(fn)
             elif c.name == "effect":
                 add_bin("effects/" + fn)
@@ -193,11 +198,15 @@ def export_character(char: Character, out_dir: str, with_assets: bool = True) ->
         dst = os.path.join(out_dir, *rel.split("/"))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(os.path.join(char.proj.root, *rel.split("/")), dst)
-    xmlb.write_text_file(os.path.join(out_dir, "herostat.txt"), herostat_snippet(char))
-    lines = [f"{char.display}  ({char.name})  -  gerado pelo MUA Studio", "",
+    stat_file = "npcstat.txt" if char.is_npc else "herostat.txt"
+    stat_game = "data/npcstat.engb" if char.is_npc else "data/herostat.engb"
+    xmlb.write_text_file(os.path.join(out_dir, stat_file), herostat_snippet(char))
+    lines = [f"{char.display}  ({char.name})  -  {'NPC ' if char.is_npc else ''}gerado pelo MUA Studio", "",
              "INSTALAR: copie as pastas (actors, data, effects, packages, sounds...) para a pasta do jogo",
-             "e cole o conteúdo de herostat.txt dentro do herostat do jogo (data/herostat.engb).",
-             "", f"skins: {', '.join(s for s, _ in char.skins)}", f"menulocation: {char.stats.get('menulocation', '-')}",
+             f"e cole o conteúdo de {stat_file} dentro do {stat_game} do jogo.",
+             "", f"skins: {', '.join(s for s, _ in char.skins)}",
+             (f"powerstyle: {char.powerstyle}   som: {char.sounddir or '-'} (som de NPC costuma ficar no banco do mapa)"
+              if char.is_npc else f"menulocation: {char.stats.get('menulocation', '-')}"),
              "", f"ARQUIVOS ({len(files)}):"] + ["  " + f for f in files]
     if missing:
         lines += ["", "REFERENCIADOS MAS NÃO ENCONTRADOS NA PASTA DE ORIGEM (podem ser do jogo original):"] + ["  " + m for m in missing]
@@ -962,3 +971,444 @@ def _interp(defs: list[Node], pos: float) -> str | None:
                 break
     whole = all(abs(p[1] - round(p[1])) < 1e-9 for p in pts)
     return str(int(round(v))) if whole else f"{v:.2f}".rstrip("0").rstrip(".")
+
+
+# ============================================================ efeitos e models do personagem
+MODEL_KEYS = {"model", "modelname"}
+
+
+def _model_path(proj: Project, value: str) -> str | None:
+    for c in _asset_candidates(value, ("", "models/")):
+        p = os.path.join(proj.root, *c.split("/"))
+        if os.path.isfile(p) and c.lower().endswith(".igb"):
+            return p
+    return None
+
+
+def char_effects(char: Character) -> list[tuple[str, str | None, bool]]:
+    """[(referência char/<pasta>/<nome>, caminho ou None, usado pelo personagem?)]: os que ele usa e os da pasta dele."""
+    proj = char.proj
+    used = {norm(v): v.replace("\\", "/") for v in char.referenced(EFFECT_KEYS) if norm(v).startswith("char/")}
+    out = {k: (v, proj.effect_path(v), True) for k, v in used.items()}
+    folders = {transfer.effects_folder(char)}  # só a pasta do próprio personagem (efeitos emprestados de outro não contam)
+    for f in folders:
+        d = os.path.join(proj.root, "effects", "char", f)
+        if not os.path.isdir(d):
+            continue
+        for fn in os.listdir(d):
+            if fn.lower().endswith((".xmlb", ".engb")):
+                ref = f"char/{f}/{fn.rsplit('.', 1)[0]}"
+                out.setdefault(norm(ref), (ref, os.path.join(d, fn), False))
+    return sorted(out.values(), key=lambda x: (not x[2], x[0].lower()))
+
+
+def char_models(char: Character) -> list[tuple[str, str | None, str]]:
+    """[(referência, caminho ou None, onde é usado)] dos models do personagem: boltons do herostat, moves, entidades,
+    efeitos e pacotes (sem os HUDs)."""
+    proj = char.proj
+    found: dict[str, list] = {}
+
+    def add(v: str, where: str):
+        v = v.strip().replace("\\", "/")
+        if not v or v.startswith("%") or norm(v).startswith("hud/"):
+            return
+        k = norm(strip_ext(v)).removeprefix("models/")
+        if k not in found:
+            found[k] = [v, _model_path(proj, v), []]
+        if where not in found[k][2]:
+            found[k][2].append(where)
+
+    for n in char.stats.walk():
+        if n.name.lower() == "bolton" and n.get("model"):
+            add(n.get("model"), "bolton (herostat)")
+    for p, where in [(char.powerstyle_path, "powerstyle")] + [(e, "entidades") for e in char.entity_paths]:
+        if not p:
+            continue
+        try:
+            for n in proj.load(p).walk():
+                for k, v in n.attrs:
+                    if k.lower() in MODEL_KEYS:
+                        add(v, where)
+        except Exception:
+            pass
+    for ref, p, used in char_effects(char):
+        if p and used:
+            try:
+                for n in proj.load(p).walk():
+                    for k, v in n.attrs:
+                        if k.lower() in MODEL_KEYS:
+                            add(v, f"efeito {ref.split('/')[-1]}")
+            except Exception:
+                pass
+    for v in char.package_entries("model"):
+        add(v, "pacote")
+    return sorted(((v, p, ", ".join(w)) for v, p, w in found.values()), key=lambda x: x[0].lower())
+
+
+def _same(a: str, b: str) -> bool:
+    with open(a, "rb") as f, open(b, "rb") as g:
+        return f.read() == g.read()
+
+
+def copy_resources_plan(src: Character, dst: Character, effects: list[str], models: list[str],
+                        rename_models: bool = False, add_to_pkg: bool = True) -> transfer.Plan:
+    """Copia efeitos (para effects/char/<pasta do destino>/) e models (mesmo caminho em outra pasta de jogo, ou com o
+    prefixo do destino) e, se pedido, acrescenta-os aos pacotes do destino para serem pré-carregados."""
+    sproj, proj = src.proj, dst.proj
+    plan = transfer.Plan()
+    plan.proj, plan.sproj = proj, sproj
+    cross = os.path.normcase(sproj.root) != os.path.normcase(proj.root)
+    folder = transfer.effects_folder(dst)
+    queued: set[str] = set()
+    new_fx, new_models = [], []
+
+    def queue(sp: str, dp: str) -> bool:
+        if os.path.normcase(dp) in queued or (os.path.isfile(dp) and _same(sp, dp)):
+            return False
+        queued.add(os.path.normcase(dp))
+        plan.copies.append((sp, dp))
+        return True
+
+    for ref in effects:
+        sp = sproj.effect_path(ref)
+        if not sp:
+            plan.warnings.append(f"efeito não encontrado na origem: {ref}")
+            continue
+        base = ref.replace("\\", "/").split("/")[-1]
+        ext = os.path.splitext(sp)[1]
+
+        def tgt(b):
+            return os.path.join(proj.root, "effects", "char", folder, b + ext)
+
+        name = base
+        if os.path.isfile(tgt(name)) and not _same(sp, tgt(name)):
+            # o destino já tem um efeito diferente com esse nome: o copiado ganha o nome de quem está dando
+            pre = src.name.lower()
+            name = base if base.lower().startswith(pre + "_") else f"{pre}_{base}"
+            i = 2
+            while os.path.isfile(tgt(name)) and not _same(sp, tgt(name)):
+                name, i = f"{pre}_{base}_{i}", i + 1
+            who = effect_usage(dst).get(f"char/{folder}/{base}".lower(), [])
+            plan.warnings.append(f"{dst.display} já tem um efeito char/{folder}/{base} diferente"
+                                 + (f" (usado por: {', '.join(who)})" if who else "")
+                                 + f"; o copiado entra como char/{folder}/{name} e o dele fica intacto")
+        new_ref = f"char/{folder}/{name}"
+        if not queue(sp, tgt(name)):
+            plan.info.append(f"{new_ref}: o destino já tem esse efeito igual")
+        new_fx.append(new_ref)
+        if cross:  # texturas e models usados dentro do efeito
+            try:
+                for n in sproj.load(sp).walk():
+                    for k, v in n.attrs:
+                        if v.strip() and ("texture" in k.lower() or k.lower() in MODEL_KEYS):
+                            for c in _asset_candidates(v):
+                                s2 = os.path.join(sproj.root, *c.split("/"))
+                                if os.path.isfile(s2):
+                                    d2 = os.path.join(proj.root, *c.split("/"))
+                                    if not os.path.isfile(d2):
+                                        queue(s2, d2)
+                                    break
+            except Exception:
+                pass
+
+    for ref in models:
+        sp = _model_path(sproj, ref)
+        if not sp:
+            plan.warnings.append(f"model não encontrado na origem: {ref}")
+            continue
+        rel = os.path.relpath(sp, sproj.root).replace("\\", "/")
+        if rename_models:
+            d, b = os.path.split(rel)
+            pre = dst.name.lower() + "_"
+            rel = f"{d}/{b if b.lower().startswith(pre) else pre + b}"
+        dp = os.path.join(proj.root, *rel.split("/"))
+        if not cross and not rename_models:
+            plan.info.append(f"{strip_ext(rel)}: mesma pasta de jogo, o destino já pode usar este model pelo mesmo caminho")
+        elif os.path.isfile(dp) and not rename_models and not _same(sp, dp):
+            # outra pasta de jogo já tem um model diferente com esse caminho: entra com o nome de quem está dando
+            d, b = os.path.split(rel)
+            pre = src.name.lower() + "_"
+            new_rel = f"{d}/{b if b.lower().startswith(pre) else pre + b}"
+            plan.warnings.append(f"{rel} já existe no destino com outro conteúdo; o copiado entra como {new_rel} e o dele fica intacto")
+            rel = new_rel
+            queue(sp, os.path.join(proj.root, *rel.split("/")))
+        else:
+            queue(sp, dp)
+        new_models.append(strip_ext(rel))
+
+    if add_to_pkg and (new_fx or new_models):
+        pkg_fx = False
+        for p in dst.combat_packages:
+            try:
+                r = proj.load(p).clone()
+            except Exception as e:
+                plan.warnings.append(f"pacote ilegível: {proj.rel(p)} ({e})")
+                continue
+            have = {(c.name, norm(strip_ext(c.get("filename", "")))) for c in r.children}
+            has_fx = any(c.name == "effect" for c in r.children)
+            pkg_fx |= has_fx
+            notes = []
+            for kind, vals in (("effect", new_fx if has_fx else []), ("model", new_models)):
+                for v in vals:
+                    if (kind, norm(v)) not in have:
+                        r.children.append(Node(kind, [["filename", v]]))
+                        have.add((kind, norm(v)))
+                        notes.append(f"{kind} = {v}")
+            if notes:
+                plan.changes.append(transfer.FileChange(p, r, notes))
+        if new_fx and not pkg_fx:
+            plan.info.append("os pacotes do destino não listam efeitos (o jogo os carrega pelo caminho); só os models entram nos pacotes")
+    plan.info[0:0] = [f"{src.display}{f' [{sproj.label}]' if cross else ''}  ->  {dst.display}{f' [{proj.label}]' if cross else ''}", ""]
+    if new_fx:
+        plan.info.append("efeitos para usar no destino (effect = ... ;): " + ", ".join(new_fx))
+    if new_models:
+        plan.info.append("models para usar no destino (model = ... ;): " + ", ".join(new_models))
+    if not effects and not models:
+        plan.errors.append("nada selecionado")
+    return plan
+
+
+# ============================================================ quem usa cada efeito
+_USAGE_CACHE: dict = {}
+
+
+def effect_usage(char: Character) -> dict[str, list[str]]:
+    """{efeito (minúsculas, char/<pasta>/<nome>): [quem usa]}. 'Quem' é o nome do poder (descname do talento) para os
+    moves de poder, o nome do move para ataques comuns, e 'entidade X' para efeitos de entidades que nenhum move dispara.
+    Segue os eventos do powerstyle e as entidades que cada move lança."""
+    proj = char.proj
+    files = [p for p in [char.powerstyle_path] + char.entity_paths if p]
+    key = (proj.root, char.name, char.is_npc, tuple((p, os.path.getmtime(p)) for p in files if os.path.isfile(p)))
+    if key in _USAGE_CACHE:
+        return _USAGE_CACHE[key]
+    usage: dict[str, list[str]] = {}
+
+    def add(ref: str, who: str):
+        r = norm(ref)
+        if r and who not in usage.setdefault(r, []):
+            usage[r].append(who)
+
+    def fx_of(node: Node) -> list[str]:
+        return [v for n in node.walk() for k, v in n.attrs if k.lower() in EFFECT_KEYS and v.strip() and not v.startswith("%")]
+
+    ents: dict[str, Node] = {}
+    for p in char.entity_paths:
+        try:
+            for e in proj.load(p).children:
+                if e.get("name"):
+                    ents.setdefault(e.get("name").lower(), e)
+        except Exception:
+            pass
+    events: dict[str, Node] = {}
+    moves: list[Node] = []
+    if char.powerstyle_path:
+        try:
+            for n in proj.load(char.powerstyle_path).children:
+                if n.name == "event" and n.get("name"):
+                    events[n.get("name").lower()] = n
+                elif n.name == "FightMove":
+                    moves.append(n)
+        except Exception:
+            pass
+    # dono de cada move: o talento dele; moves sem talento herdam o poder de quem encadeia para eles (ex.: o xtreme)
+    owner: dict[str, str] = {}
+    succ: dict[str, set[str]] = {}
+    for m in moves:
+        nm = (m.get("name") or "").lower()
+        t = char.talent_for_move(m) if not char.is_npc else None
+        if t is not None:
+            owner[nm] = t.get("descname") or t.get("name")
+        for n in m.walk():
+            for k, v in n.attrs:
+                if (k.lower() in MOVE_REF_KEYS and (n is m or n.name == "chain")) or k.lower() in ("startnode", "nodename", "nextnode"):
+                    succ.setdefault(nm, set()).add(v.lower())
+    common = {"idle", "run", "walk", "jog", "null", "powers", "flying", "jump", "land", "blocking"}
+    names = {(m.get("name") or "").lower() for m in moves}
+    preds: dict[str, set[str]] = {}
+    for a_, bs in succ.items():
+        for b_ in bs:
+            preds.setdefault(b_, set()).add(a_)
+    changed = True
+    while changed:
+        changed = False
+        for nm in names - set(owner) - common:
+            got = {owner[p] for p in preds.get(nm, ()) if p in owner}
+            if len(got) == 1:  # só herda quando um único poder leva até ele
+                owner[nm] = got.pop()
+                changed = True
+    used_ents: set[str] = set()
+    for m in moves:
+        who = owner.get((m.get("name") or "").lower()) or (m.get("name") or "?")
+        seen_ev: set[str] = set()
+        stack = [m]
+        while stack:
+            node = stack.pop()
+            for v in fx_of(node):
+                add(v, who)
+            for n in node.walk():
+                for k, v in n.attrs:
+                    kl, vl = k.lower(), v.lower()
+                    if (kl == "inherit" or (n.name == "trigger" and kl == "name")) and vl in events and vl not in seen_ev:
+                        seen_ev.add(vl)
+                        stack.append(events[vl])
+                    if kl == "entity" and vl in ents:
+                        used_ents.add(vl)
+                        for f in fx_of(ents[vl]):
+                            add(f, who)
+    for en, e in ents.items():
+        if en not in used_ents:
+            for f in fx_of(e):
+                add(f, f"entidade {e.get('name')}")
+    for en, e in events.items():  # eventos que nenhum move chama, mas que existem no powerstyle
+        for f in fx_of(e):
+            if norm(f) not in usage:
+                add(f, f"evento {e.get('name')}")
+    if len(_USAGE_CACHE) > 64:
+        _USAGE_CACHE.clear()
+    _USAGE_CACHE[key] = usage
+    return usage
+
+
+def power_effects(char: Character, talent_name: str) -> list[str]:
+    """Efeitos que um poder usa (pelos moves dele, eventos e entidades)."""
+    t = None
+    if char.talents_path:
+        t = next((x for x in char.proj.load(char.talents_path).children
+                  if x.name == "talent" and x.get("name", "").lower() == talent_name.lower()), None)
+    if t is None:
+        return []
+    who = t.get("descname") or t.get("name")
+    return sorted(r for r, w in effect_usage(char).items() if who in w)
+
+
+def effects_with_usage(char: Character) -> list[tuple[str, str | None, list[str]]]:
+    """[(referência, caminho, quem usa)] dos efeitos referenciados + os da pasta do personagem que ninguém usa."""
+    proj = char.proj
+    usage = effect_usage(char)
+    out = {}
+    for v in char.referenced(EFFECT_KEYS):
+        out[norm(v)] = (v.replace("\\", "/"), proj.effect_path(v), usage.get(norm(v), []))
+    for ref, p, _used in char_effects(char):
+        out.setdefault(norm(ref), (ref, p, usage.get(norm(ref), [])))
+    return sorted(out.values(), key=lambda x: (not x[2], x[0].lower()))
+
+
+# ============================================================ renomear efeito
+def _data_files(proj: Project) -> list[str]:
+    """Arquivos compilados que o jogo carrega e que podem citar efeitos: tudo em data/ e os pacotes de personagem.
+    Quando existem .engb e .xmlb com o mesmo nome, vale o que o jogo usa (o .engb)."""
+    bases = set()
+    for d in ("data", os.path.join("packages", "generated", "characters")):
+        root = os.path.join(proj.root, d)
+        for dp, _dn, fn in os.walk(root):
+            for f in fn:
+                if f.lower().endswith((".engb", ".xmlb", ".pkgb")):
+                    bases.add(os.path.join(dp, f.rsplit(".", 1)[0]))
+    out = []
+    for b in sorted(bases):
+        for e in (".engb", ".xmlb", ".pkgb"):
+            if os.path.isfile(b + e):
+                out.append(b + e)
+                break
+    return out
+
+
+def effect_refs(proj: Project, ref: str) -> list[tuple[str, int]]:
+    """[(arquivo, quantas vezes)] de todos os arquivos que citam o efeito (powerstyles, entidades, talentos,
+    fightstyles, herostat/npcstat e pacotes)."""
+    target = norm(strip_ext(ref))
+    out = []
+    for p in _data_files(proj):
+        try:
+            root = proj.load(p)
+        except Exception:
+            continue
+        n_hits = 0
+        is_pkg = p.lower().endswith(".pkgb")
+        for n in root.walk():
+            for k, v in n.attrs:
+                kl = k.lower()
+                if (kl in EFFECT_KEYS or (is_pkg and n.name == "effect" and kl == "filename")) and norm(strip_ext(v)) == target:
+                    n_hits += 1
+        if n_hits:
+            out.append((p, n_hits))
+    return out
+
+
+def rename_effect_plan(char: Character, ref: str, new_name: str) -> tuple[transfer.Plan, str | None, str | None]:
+    """Renomeia effects/<ref> e troca a referência em todo arquivo que a cita. new_name pode ser só o nome
+    (fica na mesma pasta) ou o caminho char/<pasta>/<nome>."""
+    proj = char.proj
+    plan = transfer.Plan()
+    plan.proj = plan.sproj = proj
+    ref = ref.replace("\\", "/").strip()
+    sp = proj.effect_path(ref)
+    if not sp:
+        plan.errors.append(f"o efeito effects/{ref} não existe nesta pasta")
+        return plan, None, None
+    nn = new_name.strip().replace("\\", "/").strip("/")
+    nn = re.sub(r"\.(xmlb|engb)$", "", nn, flags=re.I)
+    if nn.lower().startswith("effects/"):
+        nn = nn[8:]
+    new_ref = nn if "/" in nn else "/".join(ref.split("/")[:-1] + [nn])
+    if not re.fullmatch(r"[A-Za-z0-9_]+(/[A-Za-z0-9_]+)+", new_ref):
+        plan.errors.append("nome inválido: use letras, números e _ (ex.: p1_charge_azul ou char/batman/p1_charge_azul)")
+        return plan, None, None
+    if norm(new_ref) == norm(ref):
+        plan.errors.append("o nome novo é igual ao atual")
+        return plan, None, None
+    dp = os.path.join(proj.root, "effects", *new_ref.split("/")) + os.path.splitext(sp)[1]
+    if proj.effect_path(new_ref) or os.path.exists(dp):
+        plan.errors.append(f"já existe um efeito effects/{new_ref}")
+        return plan, None, None
+    # o valor novo mantém o estilo do antigo em cada arquivo (com ou sem barra invertida)
+    target = norm(strip_ext(ref))
+    files = effect_refs(proj, ref)
+    users = effect_usage(char).get(norm(ref), [])
+    for p, n_hits in files:
+        root = proj.load(p).clone()
+        is_pkg = p.lower().endswith(".pkgb")
+        for n in root.walk():
+            for a in n.attrs:
+                kl = a[0].lower()
+                if (kl in EFFECT_KEYS or (is_pkg and n.name == "effect" and kl == "filename")) and norm(strip_ext(a[1])) == target:
+                    a[1] = new_ref.replace("/", "\\") if "\\" in a[1] else new_ref
+        plan.changes.append(transfer.FileChange(p, root, [f"{n_hits}x  {ref}  ->  {new_ref}"]))
+    plan.info.append(f"RENOMEAR EFEITO: effects/{ref}  ->  effects/{new_ref}")
+    plan.info.append(f"arquivo: {proj.rel(sp)}  ->  {proj.rel(dp)}")
+    if users:
+        plan.info.append(f"usado em {char.display} por: " + ", ".join(users))
+    others = [p for p, _ in files if not (char.powerstyle_path and os.path.normcase(p) == os.path.normcase(char.powerstyle_path))
+              and not any(os.path.normcase(p) == os.path.normcase(e) for e in char.entity_paths)]
+    if others:
+        plan.warnings.append("o efeito também é citado fora do powerstyle/entidades deste personagem; esses arquivos são atualizados "
+                             "juntos para nada ficar apontando para o nome antigo: " + ", ".join(os.path.basename(p) for p in others))
+    if not files:
+        plan.warnings.append("nenhum arquivo cita este efeito; só o arquivo é renomeado")
+    return plan, sp, dp
+
+
+def rename_effect_apply(plan: transfer.Plan, sp: str, dp: str) -> list[str]:
+    """Move o arquivo do efeito (o antigo vai para os backups) e grava as referências novas."""
+    if plan.errors:
+        raise ValueError("; ".join(plan.errors))
+    proj = plan.proj
+    proj.backup(sp)
+    os.makedirs(os.path.dirname(dp), exist_ok=True)
+    shutil.copy2(sp, dp)
+    if os.path.isfile(sp + ".txt"):
+        proj.backup(sp + ".txt")
+        shutil.copy2(sp + ".txt", dp + ".txt")
+    try:
+        written = transfer.apply_plan(proj, plan)
+    except Exception:
+        os.remove(dp)  # deu errado: nada aponta para o nome novo, então volta como estava
+        if os.path.isfile(dp + ".txt"):
+            os.remove(dp + ".txt")
+        raise
+    os.remove(sp)
+    if os.path.isfile(sp + ".txt"):
+        os.remove(sp + ".txt")
+    proj._cache.pop(sp, None)
+    _USAGE_CACHE.clear()
+    return [dp] + written

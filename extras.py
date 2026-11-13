@@ -13,7 +13,7 @@ import transfer
 import anims
 import project as pj
 
-from theme import BG, PANEL, FG, DIM, SEL  # noqa: E402  cores do tema (theme.py)
+from theme import BG, PANEL, FG, DIM, SEL, WARN, ERR, ERR_SOFT, SYN_KEY, SYN_NUM  # noqa: E402  cores do tema (theme.py)
 
 
 def fit(win, w: int, h: int):
@@ -87,9 +87,9 @@ class SearchCombo(ttk.Combobox):
 def _text(parent, **kw) -> tk.Text:
     t = tk.Text(parent, bg=BG, fg=FG, font=("Consolas", 10), wrap="word", borderwidth=0, highlightthickness=0, padx=8, pady=6, **kw)
     t._i18n = True  # saída do programa (prévias/mensagens): traduzida conforme o idioma
-    t.tag_configure("warn", foreground="#e0b040")
-    t.tag_configure("err", foreground="#ff8080")
-    t.tag_configure("head", foreground="#7fb4f0")
+    t.tag_configure("warn", foreground=WARN)
+    t.tag_configure("err", foreground=ERR_SOFT)
+    t.tag_configure("head", foreground=SYN_KEY)
     return t
 
 
@@ -230,7 +230,7 @@ def export_character(app, char: pj.Character, parent_dir: str | None = None) -> 
     parent_dir = parent_dir or filedialog.askdirectory(parent=app, title=f"Onde criar a pasta de {char.display}?")
     if not parent_dir:
         return None
-    out = os.path.join(parent_dir, re.sub(r'[\\/:*?"<>|]', "_", f"{char.display} ({char.name})"))
+    out = os.path.join(parent_dir, re.sub(r'[\\/:*?"<>|]', "_", f"{char.display} ({char.name})" + (" NPC" if char.is_npc else "")))
     if os.path.isdir(out) and os.listdir(out):
         if not messagebox.askyesno("Compilar personagem", f"A pasta já existe e tem arquivos:\n{out}\n\nCopiar por cima?", parent=app):
             return None
@@ -486,8 +486,9 @@ class AnimMixer(tk.Toplevel):
         self.configure(bg=PANEL)
         fit(self, 1180, 760)
         self.transient(app)
-        self.chars = app.all_characters()
-        self.labels = [f"{c.display}   ({c.name})" + ("" if c.proj is app.proj else f"      [{c.proj.label}]") for c in self.chars]
+        self.chars = app.all_characters() + app.proj.npcs()
+        self.labels = [f"{c.display}   ({c.name})" + ("      [NPC]" if c.is_npc else "" if c.proj is app.proj else f"      [{c.proj.label}]")
+                       for c in self.chars]
         self.side = {}
         body = ttk.Frame(self, padding=12)
         body.pack(fill="both", expand=True)
@@ -526,7 +527,7 @@ class AnimMixer(tk.Toplevel):
             "animação sumiu e só então troca o arquivo (o original vai para os backups). O jogo só reconhece nomes que estão na shared_anims."))
         self.msg.pack(anchor="w", side="bottom", before=body)
         if not self.tools.available:
-            self.msg.configure(text="Ferramenta de animação não encontrada em tools/ (animationProducer.exe e sgOptimizer.exe).", foreground="#ff8080")
+            self.msg.configure(text="Ferramenta de animação não encontrada em tools/ (animationProducer.exe e sgOptimizer.exe).", foreground=ERR_SOFT)
         for key, ch in (("A", left_char), ("B", right_char)):
             if char_index(self.chars, ch) >= 0:
                 self.side[key]["char"].current(char_index(self.chars, ch))
@@ -708,6 +709,7 @@ class NpcstatTab(ttk.Frame):
         self.fight_only = tk.BooleanVar(value=False)
         ttk.Checkbutton(top, text="só os que lutam", variable=self.fight_only, command=self.fill).pack(side="left", padx=(0, 10))
         ttk.Button(top, text="Salvar npcstat", style="Accent.TButton", command=self.save).pack(side="right")
+        ttk.Button(top, text="Compilar NPC (pasta)...", command=self.export).pack(side="right", padx=6)
         for text, cmd in (("Novo NPC de herói...", self.new_from_hero), ("Duplicar...", self.duplicate),
                           ("Remover", self.remove), ("Abrir como texto", self.open_text)):
             ttk.Button(top, text=text, command=cmd).pack(side="left", padx=(0, 6))
@@ -725,7 +727,8 @@ class NpcstatTab(ttk.Frame):
         self.tv.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         self.tv.pack(fill="both", expand=True)
-        self.tv.bind("<<TreeviewSelect>>", lambda e: self.show())
+        self.tv.bind("<<TreeviewSelect>>", lambda e: self._select_changed())
+        self._snap = None  # estado do formulário logo depois de mostrado (para saber se foi editado)
         body.add(lf, weight=3)
         rf = ttk.Frame(body, padding=(12, 0, 0, 0))
         self.title_lbl = ttk.Label(rf, font=("Segoe UI", 13, "bold"), text="Selecione um NPC")
@@ -791,6 +794,43 @@ class NpcstatTab(ttk.Frame):
         self.info.configure(text=f"{len(n)} NPCs ({sum(1 for s in n if s.get('powerstyle'))} com powerstyle) em {self.proj.rel(self.path or '')}"
                             + ("     ALTERAÇÕES NÃO SALVAS: clique em 'Salvar npcstat'" if self.dirty else ""))
 
+    def _form_state(self):
+        return ({k: v.get().strip() for k, v in self.vars.items()}, self.tal.get("1.0", "end").strip(), self.other.get("1.0", "end").strip())
+
+    def form_changed(self) -> bool:
+        return self.current is not None and self._snap is not None and self._form_state() != self._snap
+
+    def _select_changed(self):
+        sel = self.tv.selection()
+        if self.current is not None and (not sel or sel[0] != self.current.get("name")) and self.form_changed():
+            # trocou de NPC com o formulário editado: grava o que foi digitado antes de mostrar o outro
+            prev = self.current.get("name")
+            if self._form_to_node(self.current):
+                self.dirty = True
+                if self.save(select=sel[0] if sel else None):
+                    self.app.status(f"{prev}: alterações do formulário salvas antes de trocar de NPC")
+                    return
+        self.show()
+
+    def select(self, name: str):
+        """Mostra um NPC (usado pela barra lateral)."""
+        self.filter.set("")
+        self.fight_only.set(False)
+        self.fill(name)
+        self.show()
+
+    def export(self):
+        s = self.current
+        if s is None:
+            return self.app.status("Selecione o NPC a compilar")
+        if self.form_changed() and not self.save():
+            return
+        npc = next((c for c in self.proj.npcs() if c.name == s.get("name")), None)
+        if npc is None:
+            npc = pj.Character(self.proj, s)
+            npc.is_npc = True
+        export_character(self.app, npc)
+
     def show(self):
         sel = self.tv.selection()
         s = self.node(sel[0]) if sel else None
@@ -800,6 +840,7 @@ class NpcstatTab(ttk.Frame):
             self.vars[k].set(s.get(k, "") if s is not None else "")
         self.tal.delete("1.0", "end")
         self.other.delete("1.0", "end")
+        self._snap = None
         if s is None:
             return self.title_lbl.configure(text="Selecione um NPC")
         self.title_lbl.configure(text=f"{s.get('charactername', '')}   ({s.get('name')})")
@@ -811,20 +852,27 @@ class NpcstatTab(ttk.Frame):
                             + ("" if not ps else "Powerstyle existe na pasta. " if self.proj.resolve(f"data/powerstyles/{ps}")
                                or any(os.path.basename(p).lower().startswith(ps.lower() + ".") for p, _ in self.pending)
                                else f"ATENÇÃO: data/powerstyles/{ps} não existe nesta pasta. "))
+        self._snap = self._form_state()
 
     def changed(self, select=None):
         """Cada alteração é gravada e compilada na hora (data/npcstat.engb + .txt, com backup)."""
         self.dirty = True
-        self.fill(select)
-        if self.save():
-            self.fill(select)
-            self.show()
+        self.save(select=select)
 
     # ---- formulário --------------------------------------------------------------
     def apply_form(self, quiet: bool = False) -> bool:
         s = self.current
         if s is None:
             return False
+        if not self._form_to_node(s):
+            return False
+        self.changed(s.get("name"))
+        if not quiet and not self.dirty:
+            self.app.status(f"{s.get('name')} salvo e compilado em {self.proj.rel(self.path)}")
+        return not self.dirty
+
+    def _form_to_node(self, s: xmlb.Node) -> bool:
+        """Passa o formulário para o bloco do NPC (sem gravar). False se o formulário tiver erro."""
         known = [k for k, _, _ in self.FIELDS]
         attrs = [["name", s.get("name")]]
         for k in known:
@@ -852,13 +900,12 @@ class NpcstatTab(ttk.Frame):
                 messagebox.showerror("Talentos", f"Linha {ln}: use  nome nível   (ex.: monst_dmg_high 3)", parent=self)
                 return False
             talents.append(xmlb.Node("talent", [["level", parts[1] if len(parts) == 2 else "1"], ["name", parts[0]]]))
+        if not s.get("name"):
+            return False
         s.attrs[:] = sorted(attrs, key=lambda a: a[0].lower())
         pos = next((i for i, c in enumerate(s.children) if c.name == "talent"), len(s.children))
         rest = [c for c in s.children if c.name != "talent"]
         s.children[:] = rest[:pos] + talents + rest[pos:]
-        self.changed(s.get("name"))
-        if not quiet:
-            self.app.status(f"{s.get('name')} atualizado, salvo e compilado em {self.proj.rel(self.path)}")
         return True
 
     def villain_talents(self):
@@ -986,31 +1033,49 @@ class NpcstatTab(ttk.Frame):
             else:
                 show_plan(d.out, f"NÃO dá para converter para {sel[0]}: ele não tem powerstyle (ou o arquivo não existe).")
 
-    def save(self) -> bool:
+    def save(self, select: str | None = None) -> bool:
+        """Grava e compila o npcstat. O que estiver digitado no formulário entra junto. Depois relê o arquivo do disco
+        e confere que o que foi gravado é o que está na tela."""
         if not self.path:
             return False
+        if self.current is not None and self.form_changed():
+            if not self._form_to_node(self.current):
+                return False
+            self.dirty = True
         if dirty_tabs(self.app, [self.path]):
             messagebox.showwarning("Salve antes", "O npcstat está aberto no editor de texto com alterações não salvas.", parent=self)
             return False
         names = [s.get("name").lower() for s in self.npcs()]
-        dup = sorted({n for n in names if names.count(n) > 1})
-        mine = {s.get("name").lower() for s in self.proj.load(self.path).children if s.get("name")}
-        new_dup = [n for n in dup if n not in mine or names.count(n) > [x.get("name", "").lower() for x in self.proj.load(self.path).children].count(n)]
+        on_disk = [x.get("name", "").lower() for x in self.proj.load(self.path).children if x.get("name")]
+        new_dup = sorted({n for n in names if names.count(n) > max(1, on_disk.count(n))})
         if new_dup:
             messagebox.showerror("NPCStat", "Nomes internos repetidos: " + ", ".join(new_dup), parent=self)
             return False
-        keep = self.tv.selection()
-        for p, node in self.pending:
-            if not os.path.exists(p):
-                self.proj.save(p, node)
-        self.proj.save(self.path, self.root)
+        keep = select or (self.tv.selection()[0] if self.tv.selection() else (self.current.get("name") if self.current is not None else None))
+        try:
+            for p, node in self.pending:
+                if not os.path.exists(p):
+                    self.proj.save(p, node)
+            self.proj.save(self.path, self.root)
+        except Exception as e:
+            messagebox.showerror("NPCStat", f"Não foi possível gravar {self.proj.rel(self.path)}:\n\n{e}", parent=self)
+            return False
+        self.proj._cache.pop(self.path, None)
+        back = xmlb.load_file(self.path)
+        if not back.same_as(self.root):
+            messagebox.showerror("NPCStat", "O arquivo gravado não confere com o que está na tela. Verifique a pasta de backups.", parent=self)
+            return False
         self.proj._npcs = None
         n_new = len(self.pending)
         reload_tabs(self.app, [self.path])
         self.load()
         if keep:
-            self.fill(keep[0])
-        self.app.status("npcstat salvo e compilado (com backup)" + (f"; {n_new} arquivo(s) novo(s) criados" if n_new else ""))
+            self.fill(keep)
+        self.show()
+        if hasattr(self.app, "fill_npcs"):
+            self.app.fill_npcs()
+        self.app.status(f"npcstat salvo e compilado: {self.proj.rel(self.path)} (o anterior foi para os backups)"
+                        + (f"; {n_new} arquivo(s) novo(s) criados" if n_new else ""))
         return True
 
 
@@ -1300,6 +1365,178 @@ class OrganizeDialog(tk.Toplevel):
         self.rows = [[n, d, k, lv] for (n, d, _k, lv), (_, _, k, _) in zip(ops.power_talents(self.char), self.rows)]
         self.fill()
         show_plan(self.out, "FEITO: requisitos e tiers gravados em " + self.char.proj.rel(self.char.talents_path) + "\n\n" + self.out.get("1.0", "end"))
+
+
+# ============================================================ copiar efeitos e models
+class ResourceCopyDialog(tk.Toplevel):
+    """Escolhe efeitos e models de um personagem e copia para outro (mesma pasta de jogo ou outra)."""
+
+    def __init__(self, app, src=None, dst=None, preselect=()):
+        super().__init__(app)
+        self.app = app
+        self.title("Copiar efeitos e models")
+        self.configure(bg=PANEL)
+        fit(self, 1240, 820)
+        self.transient(app)
+        self.chars = app.all_characters() + app.proj.npcs()
+        labels = [f"{c.display}   ({c.name})" + ("      [NPC]" if c.is_npc else "" if c.proj is app.proj else f"      [{c.proj.label}]")
+                  for c in self.chars]
+        self.plan = None
+        self._pre = {x.lower() for x in preselect}
+        self._done = ""
+        b = ttk.Frame(self, padding=12)
+        b.pack(fill="x", side="bottom")
+        top = ttk.Frame(self, padding=(12, 12, 12, 4))
+        top.pack(fill="x")
+        top.columnconfigure(1, weight=1)
+        top.columnconfigure(3, weight=1)
+        ttk.Label(top, text="De:").grid(row=0, column=0, sticky="w")
+        self.src_cb = SearchCombo(top, values=labels)
+        self.src_cb.grid(row=0, column=1, sticky="ew", padx=8)
+        ttk.Label(top, text="Para:").grid(row=0, column=2, sticky="w")
+        self.dst_cb = SearchCombo(top, values=labels)
+        self.dst_cb.grid(row=0, column=3, sticky="ew", padx=8)
+        of = ttk.Frame(top)
+        of.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        self.rename_var = tk.BooleanVar(value=False)
+        self.pkg_var = tk.BooleanVar(value=True)
+        self.unused_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(of, text="Copiar models com o prefixo do destino (cópia própria; sem isso, na mesma pasta de jogo o destino usa o mesmo arquivo)",
+                        variable=self.rename_var, command=self.preview).pack(anchor="w")
+        ttk.Checkbutton(of, text="Acrescentar aos pacotes do destino (para o jogo pré-carregar)", variable=self.pkg_var,
+                        command=self.preview).pack(anchor="w")
+        ttk.Checkbutton(of, text="Mostrar também os efeitos da pasta que nada usa (aparecem em vermelho como 'Não usado')", variable=self.unused_var,
+                        command=self.fill).pack(anchor="w")
+        mid = ttk.Panedwindow(self, orient="horizontal")
+        mid.pack(fill="both", expand=True, padx=12, pady=6)
+        lf = ttk.Frame(mid)
+        ttk.Label(lf, text="Selecione (Ctrl/Shift+clique para vários; duplo clique abre o efeito)", style="Dim.TLabel").pack(anchor="w")
+        self.tv = ttk.Treeview(lf, columns=("info",), show="tree headings", selectmode="extended")
+        self.tv.heading("#0", text="Efeito / model")
+        self.tv.heading("info", text="Uso")
+        self.tv.column("#0", width=300)
+        self.tv.column("info", width=300)
+        self.tv.tag_configure("missing", foreground=ERR_SOFT)
+        self.tv.tag_configure("unused", foreground=ERR)
+        self.tv.pack(fill="both", expand=True, pady=4)
+        self.tv.bind("<<TreeviewSelect>>", lambda e: self._schedule())
+        self.tv.bind("<Double-1>", self._open)
+        mid.add(lf, weight=2)
+        self.out = _text(mid)
+        mid.add(self.out, weight=3)
+        ttk.Button(b, text="Fechar", command=self.destroy).pack(side="right")
+        self.apply_btn = ttk.Button(b, text="Copiar e compilar", style="Accent.TButton", command=self.apply)
+        self.apply_btn.pack(side="right", padx=8)
+        self._job = None
+        self.items: dict[str, tuple[str, str]] = {}  # iid -> ("fx" | "model", referência)
+        self.src_cb.bind("<<ComboboxSelected>>", lambda e: self.fill())
+        self.dst_cb.bind("<<ComboboxSelected>>", lambda e: self.preview())
+        for cb, ch in ((self.src_cb, src), (self.dst_cb, dst)):
+            i = char_index(self.chars, ch)
+            if i >= 0:
+                cb.current(i)
+        self.fill()
+
+    def _char(self, cb):
+        i = cb.current()
+        return self.chars[i] if i >= 0 else None
+
+    def _schedule(self):
+        if self._job:
+            self.after_cancel(self._job)
+        self._job = self.after(250, self.preview)
+
+    def fill(self):
+        self.tv.delete(*self.tv.get_children())
+        self.items = {}
+        c = self._char(self.src_cb)
+        if c is None:
+            return self.preview()
+        self.configure(cursor="watch")
+        self.update_idletasks()
+        try:
+            fx = [x for x in ops.effects_with_usage(c) if x[2] or self.unused_var.get()]
+            md = ops.char_models(c)
+        finally:
+            self.configure(cursor="")
+        gf = self.tv.insert("", "end", text=f"Efeitos ({len(fx)})", open=True)
+        gm = self.tv.insert("", "end", text=f"Models ({len(md)})", open=True)
+        pre = []
+        for ref, p, used in fx:
+            iid = self.tv.insert(gf, "end", text=ref, values=(", ".join(used) if used else "Não usado",),
+                                 tags=("missing",) if not p else () if used else ("unused",))
+            self.items[iid] = ("fx", ref)
+            if ref.lower() in self._pre:
+                pre.append(iid)
+        for ref, p, where in md:
+            iid = self.tv.insert(gm, "end", text=ref, values=(where if p else "não existe na pasta",), tags=() if p else ("missing",))
+            self.items[iid] = ("model", ref)
+            if ref.lower() in self._pre:
+                pre.append(iid)
+        self._pre = set()
+        if pre:
+            self.tv.selection_set(pre)
+            self.tv.see(pre[0])
+        self.preview()
+
+    def _open(self, e):
+        iid = self.tv.identify_row(e.y)
+        it = self.items.get(iid)
+        c = self._char(self.src_cb)
+        if it and c is not None:
+            if it[0] == "fx":
+                p = c.proj.effect_path(it[1])
+                if p:
+                    self.app.open_file(p)
+            else:
+                p = ops._model_path(c.proj, it[1])
+                if p:
+                    os.startfile(os.path.dirname(p))
+
+    def picked(self):
+        fx, md = [], []
+        for iid in self.tv.selection():
+            it = self.items.get(iid)
+            if it:
+                (fx if it[0] == "fx" else md).append(it[1])
+        return fx, md
+
+    def preview(self):
+        self._job = None
+        self.plan = None
+        self.apply_btn.state(["disabled"])
+        src, dst = self._char(self.src_cb), self._char(self.dst_cb)
+        fx, md = self.picked()
+        if not src or not dst:
+            return show_plan(self.out, "Escolha o personagem de origem e o de destino.")
+        if src is dst:
+            return show_plan(self.out, "NÃO dá: origem e destino são o mesmo personagem.")
+        if not fx and not md:
+            return show_plan(self.out, (self._done + "\n\n" if self._done else "") + "Selecione efeitos e/ou models na lista.")
+        try:
+            self.plan = ops.copy_resources_plan(src, dst, fx, md, self.rename_var.get(), self.pkg_var.get())
+        except Exception as e:
+            return show_plan(self.out, f"NÃO foi possível montar o plano: {e}")
+        done, self._done = self._done, ""
+        show_plan(self.out, (done + "\n\nPRÓXIMA CÓPIA:\n\n" if done else "") + self.plan.describe(dst.proj))
+        if not self.plan.errors and (self.plan.copies or self.plan.changes):
+            self.apply_btn.state(["!disabled"])
+
+    def apply(self):
+        if not self.plan or self.plan.errors:
+            return
+        bad = dirty_tabs(self.app, [c.path for c in self.plan.changes] + [d for _, d in self.plan.copies])
+        if bad:
+            return messagebox.showwarning("Salve antes", "Arquivos abertos com alterações não salvas:\n\n"
+                                          + "\n".join(os.path.basename(t.path) for t in bad), parent=self)
+        written = transfer.apply_plan(self.plan.proj, self.plan)
+        reload_tabs(self.app, written)
+        dst = self._char(self.dst_cb)
+        self.app.status(f"Copiados para {dst.display}: {len(self.plan.copies)} arquivo(s), {len(self.plan.changes)} pacote(s) atualizados")
+        self._done = "FEITO: " + "; ".join(l for l in self.plan.info if l.startswith(("efeitos para", "models para"))) \
+                     + f"   ({len(written)} arquivo(s) gravados, com backup)"
+        self.tv.selection_set(())
+        self.preview()
 
 
 # ================================================================ clonar personagem
