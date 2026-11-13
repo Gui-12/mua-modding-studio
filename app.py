@@ -2334,9 +2334,9 @@ class ColorsDialog(tk.Toplevel):
         self.canvas.bind("<MouseWheel>", lambda e: self.canvas.yview_scroll(-e.delta // 120, "units"))
         b = ttk.Frame(self, padding=10)
         b.pack(fill="x")
-        ttk.Button(b, text="Trocar a cor selecionada...", command=self.change).pack(side="left")
-        ttk.Button(b, text="Recolorir tudo para um tom...", command=self.recolor).pack(side="left", padx=8)
-        ttk.Button(b, text="Fechar", command=self.destroy).pack(side="right")
+        th.Button(b, text="Trocar a cor selecionada...", command=self.change).pack(side="left")
+        th.Button(b, text="Recolorir tudo para um tom...", command=self.recolor).pack(side="left", padx=8)
+        th.Button(b, text="Fechar", command=self.destroy).pack(side="right")
         self.selected: int | None = None
         self.rows: list[int] = []
         self.fill()
@@ -2441,14 +2441,14 @@ class CopyPowerDialog(tk.Toplevel):
         self.tal_var, self.main_var = tk.StringVar(), tk.StringVar()
         mf = ttk.Frame(top)
         mf.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(2, 6))
-        ttk.Radiobutton(mf, text="Adicionar como poder novo:  talento", value="add", variable=self.mode_var,
+        th.Radio(mf, text="Adicionar como poder novo:  talento", value="add", variable=self.mode_var,
                         command=self._mode_changed).grid(row=0, column=0, sticky="w")
         self.tal_entry = ttk.Entry(mf, textvariable=self.tal_var, width=22)
         self.tal_entry.grid(row=0, column=1, padx=6)
         ttk.Label(mf, text="move").grid(row=0, column=2)
         self.main_entry = ttk.Entry(mf, textvariable=self.main_var, width=12)
         self.main_entry.grid(row=0, column=3, padx=6, sticky="w")
-        ttk.Radiobutton(mf, text="Substituir este poder do destino:", value="replace", variable=self.mode_var,
+        th.Radio(mf, text="Substituir este poder do destino:", value="replace", variable=self.mode_var,
                         command=self._mode_changed).grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.rep_cb = ttk.Combobox(mf, state="disabled", width=52)
         self.rep_cb.grid(row=1, column=1, columnspan=3, padx=6, pady=(6, 0), sticky="w")
@@ -2462,18 +2462,18 @@ class CopyPowerDialog(tk.Toplevel):
         self.indep_var = tk.BooleanVar(value=True)
         self.anim_var = tk.BooleanVar(value=app.anim_tools.available)
         self.fx_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(of, text="Copiar efeitos e entidades para a pasta do destino (cópia independente, pode recolorir)",
+        th.Check(of, text="Copiar efeitos e entidades para a pasta do destino (cópia independente, pode recolorir)",
                         variable=self.indep_var, command=self.preview).pack(anchor="w")
-        ac = ttk.Checkbutton(of, text="Importar as animações para o set do destino" +
+        ac = th.Check(of, text="Importar as animações para o set do destino" +
                              ("" if app.anim_tools.available else "   (ferramenta de animação não encontrada em tools/)"),
                              variable=self.anim_var, command=self.preview)
         ac.pack(anchor="w")
         if not app.anim_tools.available:
             ac.state(["disabled"])
         self.snd_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(of, text="Copiar os sons do poder para o banco de som do destino",
+        th.Check(of, text="Copiar os sons do poder para o banco de som do destino",
                         variable=self.snd_var, command=self.preview).pack(anchor="w")
-        ttk.Checkbutton(of, text="Adicionar os efeitos aos pacotes do destino (quando o pacote lista efeitos)",
+        th.Check(of, text="Adicionar os efeitos aos pacotes do destino (quando o pacote lista efeitos)",
                         variable=self.fx_var, command=self.preview).pack(anchor="w")
 
         mid = ttk.Panedwindow(self, orient="horizontal")
@@ -2495,9 +2495,10 @@ class CopyPowerDialog(tk.Toplevel):
 
         bot = ttk.Frame(self, padding=12)
         bot.pack(fill="x", side="bottom", before=mid)  # reservado primeiro: os botões nunca ficam fora da janela
-        ttk.Button(bot, text="Atualizar prévia", command=self.preview).pack(side="left")
-        ttk.Button(bot, text="Fechar", command=self.destroy).pack(side="right")
-        self.apply_btn = ttk.Button(bot, text="Aplicar e compilar", style="Accent.TButton", command=self.apply)
+        th.Button(bot, text="Atualizar prévia", command=self.preview).pack(side="left")
+        th.Button(bot, text="Fechar", command=self.destroy).pack(side="right")
+        self.apply_btn = th.Button(bot, text="Aplicar e compilar", style="Accent.TButton", command=self.apply)
+        self.after_idle(lambda: self.apply_btn.explain_with(self.out))
         self.apply_btn.pack(side="right", padx=8)
 
         self.src_cb.bind("<<ComboboxSelected>>", lambda e: self._src_changed())
@@ -2635,7 +2636,7 @@ class CopyPowerDialog(tk.Toplevel):
         if not self.info:
             return
         for n, own in self.info.move_names():
-            mark = "[x]" if self.checked.get(n.lower()) else "[  ]"
+            mark = "\u2611" if self.checked.get(n.lower()) else "\u2610"
             self.mv.insert("", "end", iid=n.lower(), text=f"{mark}  {n}" + ("" if own else "   (comum, o destino usa o dele)"))
 
     def _toggle(self, e):

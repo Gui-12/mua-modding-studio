@@ -865,6 +865,188 @@ class CommandPalette(tk.Toplevel):
         return "break"
 
 
+def _master_bg(w) -> str:
+    """Cor de fundo do pai (tk ou ttk), para os cantos arredondados combinarem."""
+    return _bg_of(w.master)
+
+
+def _bg_of(m) -> str:
+    while m is not None:
+        try:
+            if isinstance(m, ctk.CTkBaseClass):
+                c = m.cget("fg_color")
+                c = c[1 if MODE == "dark" else 0] if isinstance(c, (tuple, list)) else c
+                if c and c != "transparent":
+                    return c
+            elif isinstance(m, ttk.Widget):
+                st = ttk.Style(m)
+                c = st.lookup(m.cget("style") or m.winfo_class(), "background") or st.lookup(m.winfo_class(), "background")
+                if c:
+                    return str(c)
+            else:
+                return str(m.cget("background"))
+        except (tk.TclError, ValueError, AttributeError):
+            pass
+        m = getattr(m, "master", None)
+    return PANEL
+
+
+_TTK_ONLY = ("style", "padding", "takefocus", "underline", "compound", "width", "cursor", "default")
+
+
+class _StateMixin:
+    """.state([...]) e .instate([...]) como no ttk, em cima do state= do CustomTkinter."""
+
+    def state(self, spec=None):
+        if spec is None:
+            return ("disabled",) if self.cget("state") == "disabled" else ()
+        spec = [spec] if isinstance(spec, str) else list(spec)
+        if "disabled" in spec:
+            self.configure(state="disabled")
+        elif "!disabled" in spec:
+            self.configure(state="normal")
+        self._state_changed()
+        return ()
+
+    def instate(self, spec):
+        dis = self.cget("state") == "disabled"
+        for s in spec:
+            if (s == "disabled" and not dis) or (s == "!disabled" and dis):
+                return False
+        return True
+
+    def _state_changed(self):
+        pass
+
+
+class Button(_StateMixin, ctk.CTkButton):
+    """CTkButton arredondado que aceita o jeito ttk do app (style="Accent.TButton", .state([...])).
+
+    reason_from: um tk.Text (prévia do diálogo); enquanto o botão está desativado, a primeira
+    linha relevante da prévia aparece ao lado do botão dizendo o que falta."""
+
+    def __init__(self, master, text="", command=None, style=None, **kw):
+        for k in _TTK_ONLY:
+            kw.pop(k, None)
+        self._accent = style == "Accent.TButton"
+        f = UI_B if self._accent else UI
+        try:
+            w = tkfont.Font(font=f).measure(text) / max(SCALE, 0.01) + 26
+        except tk.TclError:
+            w = len(text) * 7 + 26
+        super().__init__(master, text=text, command=command, font=cfont(f), corner_radius=6, height=30, width=int(w),
+                         border_width=0 if self._accent else 1, border_color=C("LINE"), bg_color=T(_bg_of(master)),
+                         text_color_disabled=C("FAINT"), **kw)
+        self._paint_kind()
+        self.reason_from = None
+        self._reason = None
+
+    def _paint_kind(self):
+        dis = self.cget("state") == "disabled"
+        if self._accent and not dis:
+            self.configure(fg_color=C("ACCENT"), hover_color=C("ACCENT_HOVER"), text_color=(WHITE, WHITE))
+        else:
+            self.configure(fg_color=C("SURFACE"), hover_color=C("LINE"), text_color=C("FG"))
+
+    def _state_changed(self):
+        self._paint_kind()
+        if self.reason_from is not None:
+            self.after(80, self._show_reason)
+
+    def explain_with(self, text_widget):
+        """Liga o botão à prévia do diálogo: desativado, ele mostra ao lado o motivo (1ª linha relevante)."""
+        self.reason_from = text_widget
+        if text_widget is not None:
+            self.after(80, self._show_reason)
+
+    def _show_reason(self):
+        try:
+            dis = self.cget("state") == "disabled"
+            txt = ""
+            if dis:
+                lines = [ln.strip() for ln in self.reason_from.get("1.0", "end").split("\n") if ln.strip()]
+                bad = [ln for ln in lines if ln.startswith(("!", "NÃO", "ERRO", "Erro"))]
+                txt = (bad or lines or [""])[0].lstrip("! ")
+                if len(txt) > 90:
+                    txt = txt[:87] + "..."
+            if self._reason is None:
+                self._reason = tk.Label(self.master, font=UI_XS, bg=_master_bg(self), fg=WARN_SOFT)
+            if txt:
+                side = self.pack_info().get("side", "right") if self.winfo_manager() == "pack" else "right"
+                self._reason.configure(text=txt)
+                self._reason.pack(side=side, padx=px(10), after=self)
+            else:
+                self._reason.pack_forget()
+        except tk.TclError:
+            pass
+
+
+class Check(_StateMixin, ctk.CTkCheckBox):
+    """CTkCheckBox (caixa com ✓ de verdade) com a interface do ttk.Checkbutton."""
+
+    def __init__(self, master, text="", variable=None, command=None, **kw):
+        for k in _TTK_ONLY:
+            kw.pop(k, None)
+        on, off = kw.pop("onvalue", 1), kw.pop("offvalue", 0)
+        super().__init__(master, text=text, variable=variable, command=command, onvalue=on, offvalue=off,
+                         font=cfont(UI), checkbox_width=17, checkbox_height=17, corner_radius=4, border_width=2,
+                         fg_color=C("ACCENT"), hover_color=C("ACCENT_HOVER"), border_color=C("FAINT"),
+                         text_color=C("FG"), text_color_disabled=C("FAINT"), checkmark_color=(WHITE, WHITE),
+                         bg_color=T(_bg_of(master)), **kw)
+
+
+class Radio(_StateMixin, ctk.CTkRadioButton):
+    """CTkRadioButton com a interface do ttk.Radiobutton."""
+
+    def __init__(self, master, text="", variable=None, value=None, command=None, **kw):
+        for k in _TTK_ONLY:
+            kw.pop(k, None)
+        super().__init__(master, text=text, variable=variable, value=value, command=command, font=cfont(UI),
+                         radiobutton_width=17, radiobutton_height=17, border_width_unchecked=2, border_width_checked=5,
+                         fg_color=C("ACCENT"), hover_color=C("ACCENT_HOVER"), border_color=C("FAINT"),
+                         text_color=C("FG"), text_color_disabled=C("FAINT"), bg_color=T(_bg_of(master)), **kw)
+
+
+class Flow(tk.Frame):
+    """Linha de botões que quebra para a linha de baixo quando não cabe (nada fica cortado).
+
+    Os botões são posicionados com place(): a largura vem do pai (fill="x") e a altura é calculada,
+    então a linha nunca força a janela a ficar mais larga que a tela."""
+
+    def __init__(self, parent, gap=6):
+        super().__init__(parent, bg=_bg_of(parent), height=px(34))
+        self.gap, self.items, self._sig = gap, [], None
+        self.bind("<Configure>", lambda e: self._layout(e.width))
+
+    def add(self, w):
+        self.items.append(w)
+        self._sig = None
+        self.after_idle(lambda: self._layout(self.winfo_width()))
+        return w
+
+    def _layout(self, width):
+        if width < 40:
+            return
+        g = px(self.gap)
+        x = y = row_h = 0
+        pos = []
+        for w in self.items:
+            ww, wh = w.winfo_reqwidth(), w.winfo_reqheight()
+            if x and x + ww > width:
+                x, y, row_h = 0, y + row_h + px(4), 0
+            pos.append((w, x, y))
+            x += ww + g
+            row_h = max(row_h, wh)
+        sig = (width, tuple((xx, yy) for _, xx, yy in pos))
+        if sig == self._sig:
+            return
+        self._sig = sig
+        for w, xx, yy in pos:
+            k = SCALE if isinstance(w, ctk.CTkBaseClass) else 1  # o CustomTkinter multiplica x/y pela escala
+            w.place(x=xx / k, y=yy / k)
+        self.configure(height=y + row_h)
+
+
 def menu_commands(menu: tk.Menu, prefix: str) -> list[tuple[str, str, object]]:
     """Todas as ações de um menu (e submenus) como itens da paleta."""
     out = []

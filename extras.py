@@ -13,6 +13,7 @@ import transfer
 import anims
 import project as pj
 
+import theme as th  # noqa: E402
 from theme import BG, PANEL, FG, DIM, SEL, WARN, ERR, ERR_SOFT, SYN_KEY, SYN_NUM  # noqa: E402  cores do tema (theme.py)
 
 
@@ -143,8 +144,8 @@ def confirm_plan(app, title: str, text: str, ok_label: str = "Aplicar") -> bool:
     res = {"ok": False}
     b = ttk.Frame(d, padding=(12, 0, 12, 12))
     b.pack(fill="x", side="bottom", before=t)
-    ttk.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
-    ttk.Button(b, text=ok_label, style="Accent.TButton", command=lambda: (res.update(ok=True), d.destroy())).pack(side="right", padx=8)
+    th.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
+    th.Button(b, text=ok_label, style="Accent.TButton", command=lambda: (res.update(ok=True), d.destroy())).pack(side="right", padx=8)
     d.grab_set()
     app.wait_window(d)
     return res["ok"]
@@ -191,10 +192,10 @@ def delete_created(app, char: pj.Character) -> bool:
            "  'Excluir também os arquivos' apaga os arquivos acima (cada um vai antes para a pasta de backups)"
            + (" e tira o personagem do herostat do jogo." if in_game else ".")]))
     res = {"mode": None}
-    ttk.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
-    ttk.Button(b, text=f"Excluir também os {len(files)} arquivos", style="Accent.TButton",
+    th.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
+    th.Button(b, text=f"Excluir também os {len(files)} arquivos", style="Accent.TButton",
                command=lambda: (res.update(mode="files"), d.destroy())).pack(side="right", padx=8)
-    ttk.Button(b, text="Só tirar da lista", command=lambda: (res.update(mode="list"), d.destroy())).pack(side="right")
+    th.Button(b, text="Só tirar da lista", command=lambda: (res.update(mode="list"), d.destroy())).pack(side="right")
     d.grab_set()
     app.wait_window(d)
     if not res["mode"]:
@@ -263,12 +264,16 @@ class HerostatTab(ttk.Frame):
         self.dirty = False
         top = ttk.Frame(self, padding=(10, 8))
         top.pack(fill="x")
-        self.save_btn = ttk.Button(top, text="Salvar herostat", style="Accent.TButton", command=self.save)
+        self.save_btn = th.Button(top, text="Salvar herostat", style="Accent.TButton", command=self.save)
         self.save_btn.pack(side="right")  # empacotado primeiro: nunca fica escondido numa janela estreita
         for text, cmd in (("Trocar os 2 selecionados", self.swap), ("Mudar posição...", self.set_pos),
                           ("Substituir por...", self.replace), ("Adicionar...", self.add),
                           ("Tirar", self.remove), ("Abrir como texto", self.open_text)):
-            ttk.Button(top, text=text, command=cmd).pack(side="left", padx=(0, 6))
+            flow = getattr(self, "_flow", None) or th.Flow(top)
+            if not hasattr(self, "_flow"):
+                self._flow = flow
+                flow.pack(side="left", fill="x", expand=True)
+            flow.add(th.Button(flow, text=text, command=cmd))
         self.info = ttk.Label(self, style="Dim.TLabel", padding=(10, 0))
         self.info.pack(anchor="w")
         fr = ttk.Frame(self)
@@ -408,8 +413,8 @@ class HerostatTab(ttk.Frame):
             "os da aba Criados já estão; os de Avulsos e Outro jogo, instale com 'Compilar personagem'.")).pack(anchor="w")
         b = ttk.Frame(d, padding=12)
         b.pack(fill="x")
-        ttk.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
-        ttk.Button(b, text="Escolher", style="Accent.TButton",
+        th.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
+        th.Button(b, text="Escolher", style="Accent.TButton",
                    command=lambda: (res.update(i=lb.curselection()), d.destroy())).pack(side="right", padx=8)
         lb.bind("<Double-1>", lambda e: (res.update(i=lb.curselection()), d.destroy()))
         d.grab_set()
@@ -487,6 +492,7 @@ class AnimMixer(tk.Toplevel):
         self.title("Mixer de animações")
         self.configure(bg=PANEL)
         fit(self, 1180, 760)
+        th.dialog_header(self, "Mixer de animações", "film", th.OK)
         self.transient(app)
         self.chars = app.all_characters() + app.proj.npcs()
         self.labels = [f"{c.display}   ({c.name})" + ("      [NPC]" if c.is_npc else "" if c.proj is app.proj else f"      [{c.proj.label}]")
@@ -514,16 +520,16 @@ class AnimMixer(tk.Toplevel):
             lb.pack(fill="both", expand=True)
             bf = ttk.Frame(f)
             bf.pack(fill="x", pady=(6, 0))
-            ttk.Button(bf, text="Renomear...", command=lambda k=key: self.rename(k)).pack(side="left")
-            ttk.Button(bf, text="Remover", command=lambda k=key: self.delete(k)).pack(side="left", padx=6)
-            ttk.Button(bf, text="Extrair para pasta...", command=lambda k=key: self.extract(k)).pack(side="left")
+            th.Button(bf, text="Renomear...", command=lambda k=key: self.rename(k)).pack(side="left")
+            th.Button(bf, text="Remover", command=lambda k=key: self.delete(k)).pack(side="left", padx=6)
+            th.Button(bf, text="Extrair para pasta...", command=lambda k=key: self.extract(k)).pack(side="left")
             self.side[key] = {"char": cb, "set": sb_, "list": lb, "sets": [], "names": []}
             cb.bind("<<ComboboxSelected>>", lambda e, k=key: self.char_changed(k))
             sb_.bind("<<ComboboxSelected>>", lambda e, k=key: self.fill(k))
         mid = ttk.Frame(body, padding=10)
         mid.grid(row=0, column=1)
-        ttk.Button(mid, text="Copiar  >>", style="Accent.TButton", command=lambda: self.copy("A", "B")).pack(pady=6)
-        ttk.Button(mid, text="<<  Copiar", command=lambda: self.copy("B", "A")).pack(pady=6)
+        th.Button(mid, text="Copiar  >>", style="Accent.TButton", command=lambda: self.copy("A", "B")).pack(pady=6)
+        th.Button(mid, text="<<  Copiar", command=lambda: self.copy("B", "A")).pack(pady=6)
         self.msg = ttk.Label(self, style="Dim.TLabel", padding=(12, 0, 12, 10), wraplength=1140, justify="left", text=(
             "Escolha um personagem e um set de cada lado. Cada operação remonta o set numa pasta temporária, confere que nenhuma "
             "animação sumiu e só então troca o arquivo (o original vai para os backups). O jogo só reconhece nomes que estão na shared_anims."))
@@ -709,12 +715,15 @@ class NpcstatTab(ttk.Frame):
         ttk.Label(top, text="Filtrar:").pack(side="left")
         ttk.Entry(top, textvariable=self.filter, width=22).pack(side="left", padx=6)
         self.fight_only = tk.BooleanVar(value=False)
-        ttk.Checkbutton(top, text="só os que lutam", variable=self.fight_only, command=self.fill).pack(side="left", padx=(0, 10))
-        ttk.Button(top, text="Salvar npcstat", style="Accent.TButton", command=self.save).pack(side="right")
-        ttk.Button(top, text="Compilar NPC (pasta)...", command=self.export).pack(side="right", padx=6)
+        th.Check(top, text="só os que lutam", variable=self.fight_only, command=self.fill).pack(side="left", padx=(0, 10))
+        th.Button(top, text="Salvar npcstat", style="Accent.TButton", command=self.save).pack(side="right")
+        # ações numa linha própria, de largura cheia: em janela estreita quebram em duas linhas em vez de sumir
+        flow = th.Flow(self)
+        flow.pack(fill="x", padx=10, pady=(0, 6))
         for text, cmd in (("Novo NPC de herói...", self.new_from_hero), ("Duplicar...", self.duplicate),
-                          ("Remover", self.remove), ("Abrir como texto", self.open_text)):
-            ttk.Button(top, text=text, command=cmd).pack(side="left", padx=(0, 6))
+                          ("Remover", self.remove), ("Abrir como texto", self.open_text),
+                          ("Compilar NPC (pasta)...", self.export)):
+            flow.add(th.Button(flow, text=text, command=cmd))
         self.info = ttk.Label(self, style="Dim.TLabel", padding=(10, 0))
         self.info.pack(anchor="w")
         body = ttk.Panedwindow(self, orient="horizontal")
@@ -751,9 +760,9 @@ class NpcstatTab(ttk.Frame):
         self.other.grid(row=r + 3, column=0, columnspan=3, sticky="ew")
         bf = ttk.Frame(rf)
         bf.grid(row=r + 4, column=0, columnspan=3, sticky="w", pady=10)
-        ttk.Button(bf, text="Aplicar e salvar", style="Accent.TButton", command=self.apply_form).pack(side="left")
-        ttk.Button(bf, text="Pôr talentos padrão de vilão", command=self.villain_talents).pack(side="left", padx=6)
-        ttk.Button(bf, text="Converter poder de herói para este NPC...", command=self.convert).pack(side="left")
+        th.Button(bf, text="Aplicar e salvar", style="Accent.TButton", command=self.apply_form).pack(side="left")
+        th.Button(bf, text="Pôr talentos padrão de vilão", command=self.villain_talents).pack(side="left", padx=6)
+        th.Button(bf, text="Converter poder de herói para este NPC...", command=self.convert).pack(side="left")
         self.note = ttk.Label(rf, style="Dim.TLabel", wraplength=470, justify="left")
         self.note.grid(row=r + 5, column=0, columnspan=3, sticky="w")
         body.add(rf, weight=2)
@@ -964,8 +973,8 @@ class NpcstatTab(ttk.Frame):
             res = {}
             b = ttk.Frame(d, padding=12)
             b.pack(fill="x")
-            ttk.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
-            ttk.Button(b, text="Escolher", style="Accent.TButton", command=lambda: (res.update(i=lb.curselection()), d.destroy())).pack(side="right", padx=8)
+            th.Button(b, text="Cancelar", command=d.destroy).pack(side="right")
+            th.Button(b, text="Escolher", style="Accent.TButton", command=lambda: (res.update(i=lb.curselection()), d.destroy())).pack(side="right", padx=8)
             lb.bind("<Double-1>", lambda e: (res.update(i=lb.curselection()), d.destroy()))
             d.grab_set()
             self.wait_window(d)
@@ -1091,6 +1100,7 @@ class NpcPowerDialog(tk.Toplevel):
         self.title("Converter poder de herói para NPC")
         self.configure(bg=PANEL)
         fit(self, 1120, 860)
+        th.dialog_header(self, "Converter poder de herói para NPC", "robot", th.ERR_SOFT)
         self.transient(app)
         self.chars = app.all_characters()
         self.npcs = app.proj.npcs()
@@ -1127,28 +1137,29 @@ class NpcPowerDialog(tk.Toplevel):
         ttk.Label(o, text="Entra no NPC como").grid(row=0, column=0, sticky="w")
         self.move_cb = ttk.Combobox(o, textvariable=self.move_var, values=self.MOVES, width=18)
         self.move_cb.grid(row=0, column=1, padx=6)
-        ttk.Checkbutton(o, text="substituir o move de mesmo nome do NPC", variable=self.replace_var, command=self.preview).grid(row=0, column=2, columnspan=3, sticky="w")
+        th.Check(o, text="substituir o move de mesmo nome do NPC", variable=self.replace_var, command=self.preview).grid(row=0, column=2, columnspan=3, sticky="w")
         ttk.Label(o, text="Dano").grid(row=1, column=0, sticky="w", pady=6)
         df = ttk.Frame(o)
         df.grid(row=1, column=1, columnspan=2, sticky="w")
-        ttk.Radiobutton(df, text="alto (%mdmg_high)", value="high", variable=self.dmg_var, command=self.preview).pack(side="left", padx=6)
-        ttk.Radiobutton(df, text="baixo (%mdmg_low)", value="low", variable=self.dmg_var, command=self.preview).pack(side="left")
+        th.Radio(df, text="alto (%mdmg_high)", value="high", variable=self.dmg_var, command=self.preview).pack(side="left", padx=6)
+        th.Radio(df, text="baixo (%mdmg_low)", value="low", variable=self.dmg_var, command=self.preview).pack(side="left")
         ttk.Label(o, text="Recarga da IA (aireusetime, s)").grid(row=1, column=3, sticky="e", padx=(20, 0))
         ttk.Entry(o, textvariable=self.reuse_var, width=6).grid(row=1, column=4, padx=6)
         ttk.Label(o, text="Outros valores (duração, alcance...) no nível").grid(row=2, column=0, columnspan=2, sticky="w")
         ttk.Combobox(o, textvariable=self.level_var, values=[str(i) for i in range(1, 16)], width=4, state="readonly").grid(row=2, column=2, sticky="w")
         ttk.Label(o, text="do talento do herói", style="Dim.TLabel").grid(row=2, column=3, sticky="w")
-        ttk.Checkbutton(o, text="Importar as animações para o set do NPC", variable=self.anim_var, command=self.preview).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        ttk.Checkbutton(o, text="Copiar os sons para o banco do NPC (se ele tiver banco próprio)", variable=self.snd_var,
+        th.Check(o, text="Importar as animações para o set do NPC", variable=self.anim_var, command=self.preview).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        th.Check(o, text="Copiar os sons para o banco do NPC (se ele tiver banco próprio)", variable=self.snd_var,
                         command=self.preview).grid(row=3, column=3, columnspan=3, sticky="w", pady=(6, 0))
         self.out = _text(self)
         self.out.pack(fill="both", expand=True, padx=12, pady=(8, 0))
         b = ttk.Frame(self, padding=12)
         b.pack(fill="x", side="bottom", before=self.out)
-        ttk.Button(b, text="Atualizar prévia", command=self.preview).pack(side="left")
-        ttk.Button(b, text="Fechar", command=self.destroy).pack(side="right")
-        self.apply_btn = ttk.Button(b, text="Converter e compilar", style="Accent.TButton", command=self.apply)
+        th.Button(b, text="Atualizar prévia", command=self.preview).pack(side="left")
+        th.Button(b, text="Fechar", command=self.destroy).pack(side="right")
+        self.apply_btn = th.Button(b, text="Converter e compilar", style="Accent.TButton", command=self.apply)
         self.apply_btn.pack(side="right", padx=8)
+        self.after_idle(lambda: self.apply_btn.explain_with(getattr(self, "out", None)))
         self._job = None
         self.src_cb.bind("<<ComboboxSelected>>", lambda e: self.src_changed())
         self.pow_cb.bind("<<ComboboxSelected>>", lambda e: self.power_changed())
@@ -1271,6 +1282,7 @@ class OrganizeDialog(tk.Toplevel):
         self.title(f"Organizar poderes de {char.display}")
         self.configure(bg=PANEL)
         fit(self, 1080, 760)
+        th.dialog_header(self, f"Organizar poderes de {char.display}", "list", th.SYN_KEY)
         self.transient(app)
         self.rows = [[n, d, k, lv] for n, d, k, lv in ops.power_talents(char)]  # [talento, nome, tipo, nível atual]
         self.plan = None
@@ -1290,20 +1302,21 @@ class OrganizeDialog(tk.Toplevel):
         self.tv.pack(fill="both", expand=True)
         bf = ttk.Frame(lf)
         bf.pack(fill="x", pady=6)
-        ttk.Button(bf, text="Subir", command=lambda: self.move(-1)).pack(side="left")
-        ttk.Button(bf, text="Descer", command=lambda: self.move(1)).pack(side="left", padx=6)
+        th.Button(bf, text="Subir", command=lambda: self.move(-1)).pack(side="left")
+        th.Button(bf, text="Descer", command=lambda: self.move(1)).pack(side="left", padx=6)
         for kind in ("power", "boost", "xtreme"):
-            ttk.Button(bf, text=f"É {ops.KIND_LABEL[kind]}", command=lambda k=kind: self.set_kind(k)).pack(side="left", padx=(0, 6))
+            th.Button(bf, text=f"É {ops.KIND_LABEL[kind]}", command=lambda k=kind: self.set_kind(k)).pack(side="left", padx=(0, 6))
         self.rescale = tk.BooleanVar(value=True)
         self.reorder = tk.BooleanVar(value=True)
-        ttk.Checkbutton(lf, text="Reescalar dano/custo quando o número de níveis do poder mudar", variable=self.rescale, command=self.preview).pack(anchor="w")
-        ttk.Checkbutton(lf, text="Reordenar os talentos no arquivo nessa ordem", variable=self.reorder, command=self.preview).pack(anchor="w")
+        th.Check(lf, text="Reescalar dano/custo quando o número de níveis do poder mudar", variable=self.rescale, command=self.preview).pack(anchor="w")
+        th.Check(lf, text="Reordenar os talentos no arquivo nessa ordem", variable=self.reorder, command=self.preview).pack(anchor="w")
         mid.add(lf, weight=2)
         self.out = _text(mid)
         mid.add(self.out, weight=3)
-        ttk.Button(b, text="Fechar", command=self.destroy).pack(side="right")
-        self.apply_btn = ttk.Button(b, text="Aplicar e compilar", style="Accent.TButton", command=self.apply)
+        th.Button(b, text="Fechar", command=self.destroy).pack(side="right")
+        self.apply_btn = th.Button(b, text="Aplicar e compilar", style="Accent.TButton", command=self.apply)
         self.apply_btn.pack(side="right", padx=8)
+        self.after_idle(lambda: self.apply_btn.explain_with(getattr(self, "out", None)))
         self.fill()
 
     def order(self):
@@ -1379,6 +1392,7 @@ class ResourceCopyDialog(tk.Toplevel):
         self.title("Copiar efeitos e models")
         self.configure(bg=PANEL)
         fit(self, 1240, 820)
+        th.dialog_header(self, "Copiar efeitos e models", "package", th.SYN_PATH)
         self.transient(app)
         self.chars = app.all_characters() + app.proj.npcs()
         labels = [f"{c.display}   ({c.name})" + ("      [NPC]" if c.is_npc else "" if c.proj is app.proj else f"      [{c.proj.label}]")
@@ -1403,11 +1417,11 @@ class ResourceCopyDialog(tk.Toplevel):
         self.rename_var = tk.BooleanVar(value=False)
         self.pkg_var = tk.BooleanVar(value=True)
         self.unused_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(of, text="Copiar models com o prefixo do destino (cópia própria; sem isso, na mesma pasta de jogo o destino usa o mesmo arquivo)",
+        th.Check(of, text="Copiar models com o prefixo do destino (cópia própria; sem isso, na mesma pasta de jogo o destino usa o mesmo arquivo)",
                         variable=self.rename_var, command=self.preview).pack(anchor="w")
-        ttk.Checkbutton(of, text="Acrescentar aos pacotes do destino (para o jogo pré-carregar)", variable=self.pkg_var,
+        th.Check(of, text="Acrescentar aos pacotes do destino (para o jogo pré-carregar)", variable=self.pkg_var,
                         command=self.preview).pack(anchor="w")
-        ttk.Checkbutton(of, text="Mostrar também os efeitos da pasta que nada usa (aparecem em vermelho como 'Não usado')", variable=self.unused_var,
+        th.Check(of, text="Mostrar também os efeitos da pasta que nada usa (aparecem em vermelho como 'Não usado')", variable=self.unused_var,
                         command=self.fill).pack(anchor="w")
         mid = ttk.Panedwindow(self, orient="horizontal")
         mid.pack(fill="both", expand=True, padx=12, pady=6)
@@ -1426,9 +1440,10 @@ class ResourceCopyDialog(tk.Toplevel):
         mid.add(lf, weight=2)
         self.out = _text(mid)
         mid.add(self.out, weight=3)
-        ttk.Button(b, text="Fechar", command=self.destroy).pack(side="right")
-        self.apply_btn = ttk.Button(b, text="Copiar e compilar", style="Accent.TButton", command=self.apply)
+        th.Button(b, text="Fechar", command=self.destroy).pack(side="right")
+        self.apply_btn = th.Button(b, text="Copiar e compilar", style="Accent.TButton", command=self.apply)
         self.apply_btn.pack(side="right", padx=8)
+        self.after_idle(lambda: self.apply_btn.explain_with(getattr(self, "out", None)))
         self._job = None
         self.items: dict[str, tuple[str, str]] = {}  # iid -> ("fx" | "model", referência)
         self.src_cb.bind("<<ComboboxSelected>>", lambda e: self.fill())
@@ -1549,6 +1564,7 @@ class CloneDialog(tk.Toplevel):
         self.title("Clonar personagem / criar novo mod")
         self.configure(bg=PANEL)
         fit(self, 1040, 780)
+        th.dialog_header(self, "Clonar personagem / criar novo mod", "copy", th.ACCENT)
         self.transient(app)
         self.chars = app.all_characters()
         self.plan = None
@@ -1573,10 +1589,10 @@ class CloneDialog(tk.Toplevel):
             ttk.Label(f, text=hint, style="Dim.TLabel").grid(row=i, column=2, sticky="w")
             v.trace_add("write", lambda *a: self._schedule())
         self.share_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(f, text="Não criar banco de som: o clone usa o banco do personagem original (todas as falas e sons continuam tocando)",
+        th.Check(f, text="Não criar banco de som: o clone usa o banco do personagem original (todas as falas e sons continuam tocando)",
                         variable=self.share_var, command=self.preview).grid(row=len(rows) + 3, column=0, columnspan=4, sticky="w")
         self.over_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(f, text="Permitir sobrescrever arquivos que já existem (pede confirmação antes de gravar)",
+        th.Check(f, text="Permitir sobrescrever arquivos que já existem (pede confirmação antes de gravar)",
                         variable=self.over_var, command=self.preview).grid(row=len(rows) + 1, column=0, columnspan=4, sticky="w", pady=(6, 0))
         self.used = ttk.Label(f, style="Dim.TLabel", wraplength=1000, justify="left")
         self.used.grid(row=len(rows) + 2, column=0, columnspan=4, sticky="w", pady=(6, 0))
@@ -1584,9 +1600,10 @@ class CloneDialog(tk.Toplevel):
         self.out.pack(fill="both", expand=True, padx=12)
         b = ttk.Frame(self, padding=12)
         b.pack(fill="x", side="bottom", before=self.out)
-        ttk.Button(b, text="Fechar", command=self.destroy).pack(side="right")
-        self.apply_btn = ttk.Button(b, text="Criar personagem", style="Accent.TButton", command=self.apply)
+        th.Button(b, text="Fechar", command=self.destroy).pack(side="right")
+        self.apply_btn = th.Button(b, text="Criar personagem", style="Accent.TButton", command=self.apply)
         self.apply_btn.pack(side="right", padx=8)
+        self.after_idle(lambda: self.apply_btn.explain_with(getattr(self, "out", None)))
         self._job = None
         self._loading = False
         self.src_cb.bind("<<ComboboxSelected>>", lambda e: self.src_changed())

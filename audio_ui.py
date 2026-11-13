@@ -8,6 +8,7 @@ import tempfile
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 
+import theme as th
 import zsnd
 import xmlb
 import project as pj
@@ -67,6 +68,7 @@ class AudioEditor(tk.Toplevel):
         self.title("Editor de áudio")
         self.configure(bg=PANEL)
         fit(self, 1320, 800)
+        th.dialog_header(self, "Editor de áudio", "list", th.PINK)
         self.transient(app)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.chars = app.all_characters() + app.proj.npcs()
@@ -89,9 +91,9 @@ class AudioEditor(tk.Toplevel):
             self._build_side(body, col, key)
         mid = ttk.Frame(body, padding=10)
         mid.grid(row=0, column=1)
-        ttk.Button(mid, text="Copiar  >>", style="Accent.TButton", command=lambda: self.copy("A", "B")).pack(pady=6)
-        ttk.Button(mid, text="<<  Copiar", command=lambda: self.copy("B", "A")).pack(pady=6)
-        ttk.Button(mid, text="Parar som", command=self.stop).pack(pady=(24, 6))
+        th.Button(mid, text="Copiar  >>", style="Accent.TButton", command=lambda: self.copy("A", "B")).pack(pady=6)
+        th.Button(mid, text="<<  Copiar", command=lambda: self.copy("B", "A")).pack(pady=6)
+        th.Button(mid, text="Parar som", command=self.stop).pack(pady=(24, 6))
         if winsound is None:
             self.msg.configure(text="Reprodução indisponível neste sistema; o resto funciona.")
         for key, ch in (("A", left), ("B", right)):
@@ -114,8 +116,8 @@ class AudioEditor(tk.Toplevel):
         w["bank"] = ttk.Combobox(r, state="readonly")
         w["bank"].pack(side="left", fill="x", expand=True)
         w["bank"].bind("<<ComboboxSelected>>", lambda e: self.bank_changed(key))
-        ttk.Button(r, text="Abrir arquivo...", command=lambda: self.open_file(key)).pack(side="left", padx=6)
-        w["save"] = ttk.Button(r, text="Salvar banco", style="Accent.TButton", command=lambda: self.save(key))
+        th.Button(r, text="Abrir arquivo...", command=lambda: self.open_file(key)).pack(side="left", padx=6)
+        w["save"] = th.Button(r, text="Salvar banco", style="Accent.TButton", command=lambda: self.save(key))
         w["save"].pack(side="left")
         w["info"] = ttk.Label(f, style="Dim.TLabel", wraplength=600, justify="left")
         w["info"].pack(anchor="w")
@@ -136,12 +138,12 @@ class AudioEditor(tk.Toplevel):
         tv.bind("<space>", lambda e: (self.play(key), "break")[1])
         tv.bind("<Delete>", lambda e: self.remove(key))
         w["tv"] = tv
-        bf = ttk.Frame(f)
+        bf = th.Flow(f)  # quebra em duas linhas quando a janela é estreita (nenhum botão fica cortado)
         bf.pack(fill="x", pady=(6, 0))
         for text, fn in (("Tocar", self.play), ("Renomear...", self.rename), ("Remover", self.remove),
                          ("Importar .wav...", self.import_wav), ("Exportar .wav...", self.export_wav),
                          ("Copiar referência", self.copy_ref)):
-            ttk.Button(bf, text=text, command=lambda k=key, fn=fn: fn(k)).pack(side="left", padx=(0, 6))
+            bf.add(th.Button(bf, text=text, command=lambda k=key, fn=fn: fn(k)))
         self.w[key] = w
 
     # ---- nomes ------------------------------------------------------------------------
