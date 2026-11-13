@@ -56,7 +56,7 @@ def save_mode(mode: str):
 
 _DARK = dict(
     BG="#16171a", PANEL="#1e2024", SURFACE="#26292e", LINE="#2f3238", HOVER="#363940",
-    FG="#dfe1e5", DIM="#8b8f98", FAINT="#5d6068", STRONG="#ffffff",
+    FG="#dfe1e5", DIM="#8b8f98", FAINT="#7d828b", STRONG="#ffffff",
     ACCENT="#4a88ff", ACCENT_HOVER="#6a9dff", ACCENT_PRESS="#3b78ee", SEL="#263b5e", SEL_FG="#ffffff",
     SCROLL="#373a41", SCROLL_HOVER="#4a4e58",
     SYN_BLOCK="#e0a45c", SYN_KEY="#7fb4f0", SYN_VAR="#d98ee0", SYN_NUM="#9bd88f", SYN_PATH="#e6d27a",
@@ -72,7 +72,7 @@ _DARK = dict(
 )
 _LIGHT = dict(
     BG="#ffffff", PANEL="#f4f5f7", SURFACE="#e9ebef", LINE="#d7dae0", HOVER="#dde0e6",
-    FG="#1f2328", DIM="#5c636e", FAINT="#969ca6", STRONG="#0b0d10",
+    FG="#1f2328", DIM="#5c636e", FAINT="#6f7781", STRONG="#0b0d10",
     ACCENT="#2f6fec", ACCENT_HOVER="#4a86ff", ACCENT_PRESS="#245dcc", SEL="#d3e2ff", SEL_FG="#0b0d10",
     SCROLL="#c9cdd4", SCROLL_HOVER="#a9aeb7",
     SYN_BLOCK="#b45309", SYN_KEY="#1d5fb8", SYN_VAR="#a21caf", SYN_NUM="#15803d", SYN_PATH="#8a6a00",
@@ -1377,23 +1377,32 @@ class CardGrid(tk.Frame):
                    pady=(0, self.gap))
 
 
-def card(parent, bg=PANEL, hover=None, command=None, border=LINE) -> tk.Frame:
-    """Cartão com borda; com command fica clicável (hover em toda a área)."""
-    f = tk.Frame(parent, bg=bg, highlightthickness=1, highlightbackground=border, highlightcolor=border)
-    if command:
-        f.configure(cursor="hand2")
-        hv = hover or SURFACE
+def card(parent, bg=PANEL, hover=None, command=None, border=LINE) -> ctk.CTkFrame:
+    """Cartão arredondado com borda; com command fica clicável (hover em toda a área).
 
-        def paint(c):
-            # só repinta o que tem a cor de fundo do cartão (etiquetas e linhas mantêm a cor delas)
-            stack = [f]
+    Os filhos são widgets tk com bg=PANEL; o padding deles os mantém longe dos cantos arredondados."""
+    base, hov, bord = T(bg), T(hover or SURFACE), T(border)
+    f = ctk.CTkFrame(parent, fg_color=base, border_color=bord, border_width=1, corner_radius=8,
+                     bg_color=T(_bg_of(parent)))
+    if command:
+        def cur(t):
+            return (t[1] if MODE == "dark" else t[0]).lower()
+
+        def paint(to_hover):
+            new = hov if to_hover else base
+            olds = {cur(base), cur(hov)}
+            f.configure(fg_color=new)
+            stack = list(f.winfo_children())
             while stack:
                 w = stack.pop()
-                try:
-                    if w.cget("bg") in (bg, hv):
-                        w.configure(bg=c)
-                except tk.TclError:
-                    pass
+                if isinstance(w, ctk.CTkCanvas):
+                    continue
+                if not isinstance(w, ctk.CTkBaseClass):
+                    try:
+                        if str(w.cget("bg")).lower() in olds:
+                            w.configure(bg=cur(new))
+                    except tk.TclError:
+                        pass
                 stack.extend(w.winfo_children())
 
         def bind_all_children(_e=None):
@@ -1401,16 +1410,120 @@ def card(parent, bg=PANEL, hover=None, command=None, border=LINE) -> tk.Frame:
             while stack:
                 w = stack.pop()
                 if not getattr(w, "_card_bound", False):
-                    w.bind("<Enter>", lambda e: paint(hv), add="+")
-                    w.bind("<Leave>", lambda e: None if _inside(f) else paint(bg), add="+")
+                    w.bind("<Enter>", lambda e: paint(True), add="+")
+                    w.bind("<Leave>", lambda e: None if _inside(f) else paint(False), add="+")
                     w.bind("<ButtonRelease-1>", lambda e: _inside(f) and command(), add="+")
-                    if w is not f:
-                        w.configure(cursor="hand2")
+                    try:
+                        (w._canvas if isinstance(w, ctk.CTkBaseClass) else w).configure(cursor="hand2")
+                    except (tk.TclError, AttributeError, ValueError):
+                        pass
                     w._card_bound = True
                 stack.extend(w.winfo_children())
 
         f.after_idle(bind_all_children)
     return f
+
+
+# ------------------------------------------------------------------ dicas (tooltips)
+_tip = {"win": None}
+
+
+def hide_tip():
+    w = _tip["win"]
+    _tip["win"] = None
+    if w is not None:
+        try:
+            w.destroy()
+        except tk.TclError:
+            pass
+
+
+def show_tip(widget, text: str, x: int, y: int):
+    hide_tip()
+    if not text:
+        return
+    t = tk.Toplevel(widget)
+    t.overrideredirect(True)
+    t.configure(bg=LINE)
+    tk.Label(t, text=text, font=UI_S, bg=SURFACE, fg=FG, justify="left", wraplength=px(460),
+             padx=px(8), pady=px(4)).pack(padx=1, pady=1)
+    t.update_idletasks()
+    # perto da borda direita/de baixo a dica abre para o outro lado (nunca sai da tela)
+    sw, sh = t.winfo_screenwidth(), t.winfo_screenheight()
+    w, h = t.winfo_reqwidth(), t.winfo_reqheight()
+    nx = x + px(14) if x + px(14) + w <= sw - 4 else max(4, x - w - px(10))
+    ny = y + px(18) if y + px(18) + h <= sh - 4 else max(4, y - h - px(10))
+    t.geometry(f"+{nx}+{ny}")
+    try:
+        t.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    _tip["win"] = t
+
+
+def tooltip(widget, text_or_fn, delay=500):
+    """Dica ao parar o mouse em cima de um widget (texto fixo ou função que devolve o texto)."""
+    job = {"id": None}
+
+    def enter(e):
+        cancel()
+        job["id"] = widget.after(delay, lambda: show_tip(widget, text_or_fn() if callable(text_or_fn) else text_or_fn,
+                                                         e.x_root, e.y_root))
+
+    def cancel(_e=None):
+        if job["id"]:
+            widget.after_cancel(job["id"])
+            job["id"] = None
+        hide_tip()
+
+    widget.bind("<Enter>", enter, add="+")
+    widget.bind("<Leave>", cancel, add="+")
+    widget.bind("<ButtonPress>", cancel, add="+")
+
+
+def tree_tooltips(tree: ttk.Treeview, delay=450):
+    """Mostra o texto inteiro da célula quando ele não cabe na coluna (nomes longos cortados)."""
+    st = {"key": None, "job": None}
+    fnt = tkfont.Font(font=UI)
+
+    def cancel():
+        if st["job"]:
+            tree.after_cancel(st["job"])
+            st["job"] = None
+        hide_tip()
+
+    def motion(e):
+        iid, col = tree.identify_row(e.y), tree.identify_column(e.x)
+        key = (iid, col)
+        if key == st["key"]:
+            return
+        st["key"] = key
+        cancel()
+        if not iid:
+            return
+        box = tree.bbox(iid, col)
+        if not box:
+            return
+        if col == "#0":
+            text = tree.item(iid, "text")
+            depth, p = 0, tree.parent(iid)
+            while p:
+                depth, p = depth + 1, tree.parent(p)
+            avail = box[2] - px(16) * (depth + 1) - px(20)
+        else:
+            vals = tree.item(iid, "values")
+            i = int(col[1:]) - 1
+            text = str(vals[i]) if 0 <= i < len(vals) else ""
+            avail = box[2] - px(8)
+        text = text.strip()
+        if text and fnt.measure(text) > avail:
+            x, y = e.x_root, e.y_root
+            st["job"] = tree.after(delay, lambda: show_tip(tree, text, x, y))
+
+    tree.bind("<Motion>", motion, add="+")
+    tree.bind("<Leave>", lambda e: (st.update(key=None), cancel()), add="+")
+    tree.bind("<ButtonPress>", lambda e: cancel(), add="+")
+    tree.bind("<MouseWheel>", lambda e: (st.update(key=None), cancel()), add="+")
 
 
 def dialog_header(win, title, icon=None, color=ACCENT):

@@ -1032,7 +1032,7 @@ class App(th.ctk.CTk):
                 ("Ctrl+W", "fechar a aba (botão direito na aba: fechar as outras / todas)"))):
             r, c2 = i % 4, (i // 4) * 2
             th.chip(sc, k, "kbd", bg=th.SURFACE, font=th.MONO_S, padx=7, pady=2).grid(row=r, column=c2, sticky="w", pady=3)
-            tk.Label(sc, text=text, font=th.UI_S, bg=BG, fg=FG, anchor="w", wraplength=215, justify="left").grid(
+            tk.Label(sc, text=text, font=th.UI_S, bg=BG, fg=FG, anchor="w", wraplength=th.px(300), justify="left").grid(
                 row=r, column=c2 + 1, sticky="w", padx=(10, 22))
 
     def _tree(self, parent, **kw) -> ttk.Treeview:
@@ -1056,6 +1056,7 @@ class App(th.ctk.CTk):
                           ("dir", {"foreground": FG}), ("bin", {"foreground": FG}), ("txt", {"foreground": DIM})):
             tv.tag_configure(tag, **opts)
         th.enable_hover(tv)
+        th.tree_tooltips(tv)  # nome cortado na coluna: o texto inteiro aparece ao parar o mouse
         return tv
 
     # ---- status -------------------------------------------------------------------------
