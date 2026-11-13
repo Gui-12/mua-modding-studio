@@ -18,8 +18,10 @@ from theme import BG, PANEL, FG, DIM, SEL, WARN, ERR, ERR_SOFT, SYN_KEY, SYN_NUM
 
 def fit(win, w: int, h: int):
     """Abre a janela no tamanho pedido, mas nunca maior que a tela (com folga para a barra de tarefas)."""
+    import theme  # escala da tela (com DPI 125% o mesmo conteúdo ocupa 25% mais pixels)
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    w, h = min(w, sw - 60), min(h, sh - 110)
+    w, h = int(w * theme.SCALE), int(h * theme.SCALE)
+    w, h = min(w, sw - theme.px(60)), min(h, sh - theme.px(110))
     win.geometry(f"{w}x{h}+{max((sw - w) // 2, 0)}+{max((sh - h) // 2 - 30, 0)}")
 
 

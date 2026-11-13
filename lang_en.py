@@ -615,4 +615,17 @@ EN.update({
     'fora do jogo (não está no herostat nem no npcstat)': 'not in the game (not in herostat or npcstat)',
     'Tema alterado para {}.\n\nO MUA Studio precisa ser reiniciado para aplicar. Reiniciar agora?': 'Theme changed to {}.\n\nMUA Studio must be restarted to apply it. Restart now?',
     'Tema alterado para {}. Reinicie o MUA Studio para aplicar.': 'Theme changed to {}. Restart MUA Studio to apply it.',
+    # CustomTkinter: barra 'Mais', paleta de comandos, tema ao vivo
+    'Mais': 'More',
+    'Comandos': 'Commands',
+    'Digite um comando, personagem ou arquivo...  (Esc fecha)': 'Type a command, character or file...  (Esc closes)',
+    'Ficha do personagem atual': 'Current character sheet',
+    'Ir para a aba: {}': 'Go to tab: {}',
+    'aba aberta': 'open tab',
+    'Ficha: {}  ({})': 'Sheet: {}  ({})',
+    'Powerstyle: {}': 'Powerstyle: {}',
+    'herói': 'hero',
+    'Tema: {}': 'Theme: {}',
+    'Ferramentas › Editor de áudio': 'Tools › Audio editor',
+    'Ferramentas › Efeitos e models': 'Tools › Effects and models',
 })

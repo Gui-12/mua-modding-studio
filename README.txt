@@ -13,7 +13,7 @@ O QUE E PRECISO PARA RODAR
 --------------------------
 - Windows 10/11 (usa fontes Segoe e a barra de titulo escura do Windows).
 - Python 3.10 ou mais novo, COM tkinter. (Testado no Python 3.13.)
-- Nenhum pacote pip. O app usa so a biblioteca padrao do Python.
+- Nenhum pacote pip. O CustomTkinter (visual) ja vem embutido em vendor/pylibs.
 
 Instalar as dependencias:
   Duplo clique em  "Install dependencies.bat"

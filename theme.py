@@ -12,6 +12,12 @@ import zlib
 import tkinter as tk
 from tkinter import ttk, font as tkfont
 
+# CustomTkinter vem embutido em vendor/pylibs (ninguém precisa de pip)
+_VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", "pylibs")
+if os.path.isdir(_VENDOR) and _VENDOR not in sys.path:
+    sys.path.insert(0, _VENDOR)
+import customtkinter as ctk  # noqa: E402
+
 # ------------------------------------------------------------------ cores (tema escuro / claro)
 # A escolha fica em settings.json (chave "theme") e vale a partir da próxima abertura,
 # porque as cores são lidas pelos outros módulos na importação (from theme import BG...).
@@ -52,7 +58,7 @@ _DARK = dict(
     BG="#16171a", PANEL="#1e2024", SURFACE="#26292e", LINE="#2f3238", HOVER="#363940",
     FG="#dfe1e5", DIM="#8b8f98", FAINT="#5d6068", STRONG="#ffffff",
     ACCENT="#4a88ff", ACCENT_HOVER="#6a9dff", ACCENT_PRESS="#3b78ee", SEL="#263b5e", SEL_FG="#ffffff",
-    SCROLL="#363940", SCROLL_HOVER="#4a4e58",
+    SCROLL="#373a41", SCROLL_HOVER="#4a4e58",
     SYN_BLOCK="#e0a45c", SYN_KEY="#7fb4f0", SYN_VAR="#d98ee0", SYN_NUM="#9bd88f", SYN_PATH="#e6d27a",
     SYN_COMMENT="#6a8a5a", SYN_PUNCT="#6d7178",
     ERR="#ff5d5d", ERR_SOFT="#ff8080", ERR_BG="#3a2023",
@@ -75,14 +81,15 @@ _LIGHT = dict(
     WARN="#c58a12", WARN_SOFT="#8a5a00", WARN_BG="#fdf3dc",
     OK="#15a36a", OK_SOFT="#0f7a4f", OK_BG="#ddf5ea",
     PINK="#db2777", PURPLE="#9333ea", AMBER="#d97706",
-    CURLINE="#f2f6fc", FOUND_BG="#ffe8a3", BLOCKSEL_BG="#fff3c4", SHEET_FG="#b45309",
-    INFO_FG="#1f4fae", PURPLE_FG="#7e22ce", RED_FG="#b91c1c", BANNER_WARN_FG="#6b4700", BANNER_INFO_FG="#1f4fae",
+    CURLINE="#f2f6fc", FOUND_BG="#ffe8a3", BLOCKSEL_BG="#fff3c4", SHEET_FG="#b4530a",
+    INFO_FG="#1f4fae", PURPLE_FG="#7e22ce", RED_FG="#b91c1c", BANNER_WARN_FG="#6b4700", BANNER_INFO_FG="#1f4fad",
     ST_GAME="#16a34a", ST_OUT="#dc2626", ST_OTHER="#2563eb", ST_CREATED="#eab308",
 )
 MODE = read_mode()
 _P = _LIGHT if MODE == "light" else _DARK
 globals().update(_P)
-WHITE = "#ffffff"   # texto sobre o azul de destaque (igual nos dois temas)
+WHITE = "#fffffe"   # texto sobre o azul de destaque (igual nos dois temas)
+ctk.set_appearance_mode(MODE)
 
 CHAR_COLORS = ("#ef4444", "#facc15", "#f59e0b", "#10b981", "#3b82f6", "#a855f7",
                "#ec4899", "#14b8a6", "#f97316", "#84cc16", "#6366f1", "#e11d48")
@@ -128,7 +135,67 @@ def mix(c1: str, c2: str, t: float) -> str:
     """Mistura duas cores #rrggbb (t=0 -> c1, t=1 -> c2)."""
     a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
     b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
-    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+    r = "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+    _DERIVED.setdefault(r, (c1.lower(), c2.lower(), t))  # para refazer a mistura no outro tema
+    return r
+
+
+# ------------------------------------------------------------------ conversão entre temas
+_DERIVED: dict = {}
+_CONV: dict = {}
+
+
+def _conv(src: dict, dst: dict):
+    """Função que leva uma cor do tema src para a cor equivalente do tema dst (None se não for do tema)."""
+    key = (id(src), id(dst))
+    if key in _CONV:
+        return _CONV[key]
+    base: dict = {}
+    for k, v in src.items():
+        base.setdefault(v.lower(), dst[k])
+
+    def conv(c, depth=0):
+        if not isinstance(c, str) or len(c) != 7 or not c.startswith("#"):
+            return None
+        c = c.lower()
+        if c in base:
+            return base[c]
+        d = _DERIVED.get(c)
+        if d and depth < 5:
+            a = conv(d[0], depth + 1) or d[0]
+            b = conv(d[1], depth + 1) or d[1]
+            if (a, b) != (d[0], d[1]):
+                return mix(a, b, d[2])
+        return None
+    _CONV[key] = conv
+    return conv
+
+
+def C(name: str) -> tuple:
+    """Token do tema -> (claro, escuro) para widgets do CustomTkinter."""
+    return (_LIGHT[name], _DARK[name])
+
+
+def T(v):
+    """Cor já resolvida no tema atual -> (claro, escuro); o CustomTkinter troca sozinho ao mudar o tema."""
+    if not isinstance(v, str) or v == "transparent":
+        return v
+    light = v if _P is _LIGHT else (_conv(_P, _LIGHT)(v) or v)
+    dark = v if _P is _DARK else (_conv(_P, _DARK)(v) or v)
+    return (light, dark)
+
+
+SCALE = 1.0  # fator de DPI (1.25 numa tela a 125%); resolvido em setup()
+
+
+def px(n: float) -> int:
+    """Pixels de desenho (Treeview, Canvas, imagens) na escala da tela."""
+    return int(round(n * SCALE))
+
+
+def cfont(f: tuple) -> tuple:
+    """Fonte do tk (pontos) -> fonte do CustomTkinter (que conta em pixels e aplica a escala sozinho)."""
+    return (f[0], round(f[1] * 4 / 3)) + tuple(f[2:])
 
 
 def char_color(name: str) -> str:
@@ -163,45 +230,68 @@ def dark_titlebar(win: tk.Misc):
 _imgs: dict = {}
 
 
-def _img(key, w, h, painter):
-    if key in _imgs:
-        return _imgs[key]
-    img = tk.PhotoImage(width=w, height=h)
-    painter(img)
-    _imgs[key] = img
-    return img
+def _paint_dot(img, color, size, d):
+    c = (size - 1) / 2
+    r = d / 2
+    for y in range(size):
+        for x in range(size):
+            if ((x - c) ** 2 + (y - c) ** 2) ** 0.5 <= r - 0.3:
+                img.put(color, (x, y))
+
+
+def _paint_sq(img, color, size, d):
+    o = (size - d) // 2
+    for y in range(d):
+        for x in range(d):
+            if (x in (0, d - 1)) and (y in (0, d - 1)):
+                continue
+            img.put(color, (o + x, o + y))
+
+
+_PAINTERS = {"dot": _paint_dot, "sq": _paint_sq}
+
+
+def _shape(kind: str, color: str, size: int, d: int) -> tk.PhotoImage:
+    key = (kind, color.lower(), size, d)
+    if key not in _imgs:
+        s, dd = px(size), max(2, px(d))
+        img = tk.PhotoImage(width=s, height=s)
+        _PAINTERS[kind](img, color, s, dd)
+        _imgs[key] = img
+    return _imgs[key]
 
 
 def dot(color: str, size: int = 14, d: int = 8) -> tk.PhotoImage:
     """Bolinha colorida centrada numa imagem size x size (ícone de personagem/aba)."""
-    def paint(img):
-        c = (size - 1) / 2
-        r = d / 2
-        for y in range(size):
-            row = []
-            for x in range(size):
-                dist = ((x - c) ** 2 + (y - c) ** 2) ** 0.5
-                row.append(color if dist <= r - 0.3 else "")
-            for x, col in enumerate(row):
-                if col:
-                    img.put(col, (x, y))
-    return _img(("dot", color, size, d), size, size, paint)
+    return _shape("dot", color, size, d)
 
 
 def square(color: str, size: int = 14, d: int = 6) -> tk.PhotoImage:
     """Quadradinho arredondado (ícone dos itens filhos na árvore)."""
-    def paint(img):
-        o = (size - d) // 2
-        for y in range(d):
-            for x in range(d):
-                if (x in (0, d - 1)) and (y in (0, d - 1)):
-                    continue
-                img.put(color, (o + x, o + y))
-    return _img(("sq", color, size, d), size, size, paint)
+    return _shape("sq", color, size, d)
 
 
 def blank(size: int = 14) -> tk.PhotoImage:
-    return _img(("blank", size), size, size, lambda img: None)
+    key = ("blank", size)
+    if key not in _imgs:
+        _imgs[key] = tk.PhotoImage(width=px(size), height=px(size))
+    return _imgs[key]
+
+
+def _repaint_images(conv):
+    """Repinta as bolinhas/quadradinhos no lugar: todos os widgets que usam a imagem mudam juntos."""
+    new = {}
+    for key, img in _imgs.items():
+        if key[0] in _PAINTERS:
+            kind, color, size, d = key
+            nc = (conv(color) or color).lower()
+            if nc != color:
+                img.blank()
+                _PAINTERS[kind](img, nc, img.width(), max(2, px(d)))
+            key = (kind, nc, size, d)
+        new.setdefault(key, img)
+    _imgs.clear()
+    _imgs.update(new)
 
 
 def _fill(img, color, w, h, x0=0, y0=0):
@@ -210,7 +300,13 @@ def _fill(img, color, w, h, x0=0, y0=0):
 
 # ------------------------------------------------------------------ estilo ttk
 def setup(root: tk.Tk):
-    global UI, UI_B, UI_S, UI_SB, UI_XS, H1, H2, H3, CODE, MONO, MONO_S, MONO_XS, ICON, ICON_S, ICON_L, HAS_ICONS
+    global UI, UI_B, UI_S, UI_SB, UI_XS, H1, H2, H3, CODE, MONO, MONO_S, MONO_XS, ICON, ICON_S, ICON_L, HAS_ICONS, SCALE
+    # o CustomTkinter deixa o processo nítido (DPI) e escala os widgets dele; o tk comum precisa da mesma escala
+    try:
+        SCALE = float(ctk.ScalingTracker.get_window_scaling(root))
+    except Exception:
+        SCALE = max(1.0, root.winfo_fpixels("1i") / 96)
+    root.tk.call("tk", "scaling", SCALE * 96 / 72)
     fams = set(tkfont.families(root))
 
     def pick(*cands):
@@ -231,7 +327,18 @@ def setup(root: tk.Tk):
         except tk.TclError:
             pass
 
-    root.configure(bg=PANEL)
+    _style(root)
+    dark_titlebar(root)
+    root.bind_class("Toplevel", "<Map>", lambda e: dark_titlebar(e.widget) if isinstance(e.widget, tk.Toplevel) else None, add="+")
+    return ttk.Style(root)
+
+
+def _style(root):
+    """Estilos ttk e opções padrão dos widgets tk. Roda de novo a cada troca de tema."""
+    if isinstance(root, ctk.CTk):
+        root.configure(fg_color=T(PANEL))
+    else:
+        root.configure(bg=PANEL)
     st = ttk.Style(root)
     st.theme_use("clam")
     st.configure(".", background=PANEL, foreground=FG, fieldbackground=BG, bordercolor=LINE, lightcolor=PANEL,
@@ -248,7 +355,7 @@ def setup(root: tk.Tk):
 
     # árvores e listas
     st.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=FG, borderwidth=0,
-                 rowheight=26, font=UI, bordercolor=PANEL, lightcolor=PANEL, darkcolor=PANEL, indent=16)
+                 rowheight=px(26), font=UI, bordercolor=PANEL, lightcolor=PANEL, darkcolor=PANEL, indent=px(16))
     st.map("Treeview", background=[("selected", SEL)], foreground=[("selected", SEL_FG)])
     st.configure("Treeview.Heading", background=PANEL, foreground=DIM, relief="flat", font=UI_S,
                  bordercolor=LINE, lightcolor=PANEL, darkcolor=PANEL, padding=(6, 3))
@@ -270,25 +377,44 @@ def setup(root: tk.Tk):
             ("Notebook.label", {"side": "top", "sticky": ""})]})]})])
 
     # abas do editor: linha azul em cima da aba ativa e um X para fechar
+    # imagens com nome usadas pelos elementos ttk: na troca de tema são repintadas no lugar
+    # (recriar com o mesmo nome deixaria as abas sem imagem)
+    objs = root.__dict__.setdefault("_tab_img_objs", {})
+
+    def named(name, w, h):
+        img = objs.get(name)
+        if img is None:
+            img = objs[name] = tk.PhotoImage(name=name, width=w, height=h, master=root)
+        else:
+            img.blank()
+        return img
+
     def tab_img(name, fill, top=None):
-        img = tk.PhotoImage(name=name, width=12, height=12, master=root)
-        _fill(img, fill, 12, 12)
+        s12 = px(12)
+        img = named(name, s12, s12)
+        _fill(img, fill, s12, s12)
         if top:
-            _fill(img, top, 12, 2)
+            _fill(img, top, s12, max(2, px(2)))
         return img
 
     def x_img(name, color):
-        img = tk.PhotoImage(name=name, width=16, height=16, master=root)
-        for i in range(5, 11):
-            img.put(color, (i, i))
-            img.put(color, (15 - i, i))
+        s16 = px(16)
+        img = named(name, s16, s16)
+        for i in range(px(5), px(11)):
+            for t in range(max(1, px(1.2))):
+                img.put(color, (i + t, i))
+                img.put(color, (s16 - 1 - i + t, i))
         return img
 
     root._tab_imgs = (tab_img("etab_n", PANEL), tab_img("etab_h", mix(PANEL, SURFACE, .6)),
                       tab_img("etab_s", BG, ACCENT), x_img("tab_x", FAINT), x_img("tab_x_hot", ERR))
-    st.element_create("Editor.tab", "image", "etab_n", ("selected", "etab_s"), ("active", "etab_h"),
-                      border=(3, 3, 3, 2), sticky="nswe")
-    st.element_create("tabclose", "image", "tab_x", ("active", "tab_x_hot"), border=4, sticky="")
+    for args, kw in ((("Editor.tab", "image", "etab_n", ("selected", "etab_s"), ("active", "etab_h")),
+                      dict(border=(3, 3, 3, 2), sticky="nswe")),
+                     (("tabclose", "image", "tab_x", ("active", "tab_x_hot")), dict(border=4, sticky=""))):
+        try:
+            st.element_create(*args, **kw)
+        except tk.TclError:
+            pass  # já existe (troca de tema): as imagens têm o mesmo nome e já foram refeitas
     st.layout("Closable.TNotebook", st.layout("TNotebook"))
     st.configure("Closable.TNotebook", background=PANEL, tabmargins=(6, 6, 6, 0), bordercolor=PANEL,
                  lightcolor=BG, darkcolor=BG)
@@ -322,7 +448,7 @@ def setup(root: tk.Tk):
     st.configure("TEntry", **field)
     st.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", BG)],
            fieldbackground=[("disabled", PANEL)], foreground=[("disabled", DIM)])
-    st.configure("TCombobox", **field, background=SURFACE, arrowcolor=DIM, arrowsize=12)
+    st.configure("TCombobox", **field, background=SURFACE, arrowcolor=DIM, arrowsize=px(12))
     st.map("TCombobox", fieldbackground=[("readonly", BG), ("disabled", PANEL)], foreground=[("readonly", FG), ("disabled", DIM)],
            selectbackground=[("readonly", BG)], selectforeground=[("readonly", FG)], bordercolor=[("focus", ACCENT)],
            background=[("active", LINE)], arrowcolor=[("active", FG)])
@@ -346,7 +472,7 @@ def setup(root: tk.Tk):
     st.layout("Horizontal.TScrollbar", [("Horizontal.Scrollbar.trough", {"sticky": "ew", "children": [
         ("Horizontal.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
     st.configure("TScrollbar", troughcolor=BG, background=SCROLL, bordercolor=BG, lightcolor=SCROLL,
-                 darkcolor=SCROLL, arrowsize=9, gripcount=0, relief="flat")
+                 darkcolor=SCROLL, arrowsize=px(9), gripcount=0, relief="flat")
     st.map("TScrollbar", background=[("pressed", SCROLL_HOVER), ("active", SCROLL_HOVER)],
            lightcolor=[("pressed", SCROLL_HOVER), ("active", SCROLL_HOVER)],
            darkcolor=[("pressed", SCROLL_HOVER), ("active", SCROLL_HOVER)])
@@ -364,10 +490,117 @@ def setup(root: tk.Tk):
                  ("*Listbox.selectForeground", SEL_FG), ("*Listbox.highlightThickness", 0), ("*Listbox.font", UI),
                  ("*Toplevel.background", PANEL)):
         root.option_add(k, v)
-
-    dark_titlebar(root)
-    root.bind_class("Toplevel", "<Map>", lambda e: dark_titlebar(e.widget) if isinstance(e.widget, tk.Toplevel) else None, add="+")
     return st
+
+
+# ------------------------------------------------------------------ troca de tema sem reiniciar
+_RECOLOR_OPTS = ("background", "foreground", "activebackground", "activeforeground", "highlightbackground",
+                 "highlightcolor", "insertbackground", "selectbackground", "selectforeground",
+                 "inactiveselectbackground", "troughcolor", "disabledforeground", "readonlybackground",
+                 "selectcolor", "disabledbackground")
+_TAG_OPTS = ("foreground", "background", "underlinefg", "selectbackground", "selectforeground")
+
+
+def _recolor_widget(w, conv):
+    for o in _RECOLOR_OPTS:
+        try:
+            n = conv(str(w.cget(o)))
+            if n:
+                w.configure(**{o: n})
+        except (tk.TclError, ValueError):
+            pass
+    try:
+        if isinstance(w, tk.Text):
+            for tag in w.tag_names():
+                for o in _TAG_OPTS:
+                    n = conv(str(w.tag_cget(tag, o)))
+                    if n:
+                        w.tag_configure(tag, **{o: n})
+        elif isinstance(w, ttk.Treeview):
+            for tag in w.tk.splitlist(w.tk.call(w, "tag", "names")):
+                for o in ("foreground", "background"):
+                    n = conv(str(w.tag_configure(tag, o) or ""))
+                    if n:
+                        w.tag_configure(tag, **{o: n})
+        elif isinstance(w, tk.Canvas):
+            for item in w.find_all():
+                for o in ("fill", "outline"):
+                    try:
+                        n = conv(str(w.itemcget(item, o)))
+                    except tk.TclError:
+                        continue
+                    if n:
+                        w.itemconfigure(item, **{o: n})
+        elif isinstance(w, tk.Menu):
+            for i in range((w.index("end") or -1) + 1):
+                for o in ("background", "foreground", "activebackground", "activeforeground"):
+                    try:
+                        n = conv(str(w.entrycget(i, o)))
+                    except tk.TclError:
+                        continue
+                    if n:
+                        w.entryconfigure(i, **{o: n})
+    except tk.TclError:
+        pass
+
+
+def _recolor_tree(root, conv):
+    stack = [root]
+    while stack:
+        w = stack.pop()
+        try:
+            kids = w.winfo_children()
+        except tk.TclError:
+            continue
+        if isinstance(w, ctk.CTkBaseClass):
+            # widget do CustomTkinter: ele mesmo troca as cores; só descemos nos filhos que não são peças internas dele
+            inner = {id(v) for k, v in vars(w).items() if k.startswith("_") and isinstance(v, tk.Misc)}
+            kids = [c for c in kids if id(c) not in inner]
+        elif not isinstance(w, (ctk.CTk, ctk.CTkToplevel)):
+            _recolor_widget(w, conv)
+        stack.extend(kids)
+
+
+def switch_mode(root, mode: str) -> bool:
+    """Troca claro/escuro com o app aberto: tokens, estilos ttk, imagens, widgets tk e CustomTkinter."""
+    global MODE, _P
+    if mode not in dict(MODES) or mode == MODE:
+        return False
+    old, new = _P, (_LIGHT if mode == "light" else _DARK)
+    conv = _conv(old, new)
+    MODE, _P = mode, new
+    globals().update(new)
+    # módulos do MUA Studio que fizeram "from theme import BG, ..." recebem os valores novos
+    for mod in list(sys.modules.values()):
+        f = getattr(mod, "__file__", None) or ""
+        if not f or mod is sys.modules.get(__name__) or os.path.dirname(os.path.abspath(f)) != _HERE:
+            continue
+        d = mod.__dict__
+        for k, v in old.items():
+            if isinstance(d.get(k), str) and d[k].lower() == v.lower():
+                d[k] = new[k]
+    Banner.KINDS = Banner._kinds()
+    _style(root)
+    _repaint_images(conv)
+    _recolor_tree(root, conv)
+    ctk.set_appearance_mode(mode)
+    for w in [root] + [t for t in _all_toplevels(root)]:
+        w._mua_dark = False
+        dark_titlebar(w)
+    return True
+
+
+def _all_toplevels(root):
+    out, stack = [], list(root.winfo_children())
+    while stack:
+        w = stack.pop()
+        if isinstance(w, tk.Toplevel):
+            out.append(w)
+        try:
+            stack.extend(w.winfo_children())
+        except tk.TclError:
+            pass
+    return out
 
 
 # ------------------------------------------------------------------ widgets
@@ -379,53 +612,61 @@ def _inside(widget, e=None) -> bool:
     return w is not None and str(w).startswith(str(widget))
 
 
-class ToolButton(tk.Frame):
-    """Botão da barra: ícone + texto + atalho, com hover. kind: accent | normal | ghost."""
+class ToolButton(ctk.CTkFrame):
+    """Botão arredondado: ícone + texto + atalho, com hover. kind: accent | normal | ghost."""
 
     def __init__(self, parent, text="", icon=None, command=None, kbd=None, kind="normal", icon_color=None,
                  bg=PANEL, font=None, padx=9, pady=4):
-        pal = {"accent": (ACCENT, ACCENT_HOVER, ACCENT_PRESS, ACCENT, WHITE),
-               "normal": (SURFACE, LINE, HOVER, LINE, FG),
-               "ghost": (bg, SURFACE, HOVER, bg, DIM)}[kind]
-        self._n, self._h, self._p, border, fg = pal
-        self._fg, self._kind = fg, kind
-        super().__init__(parent, bg=self._n, highlightthickness=1, highlightbackground=border, highlightcolor=border,
-                         cursor="hand2")
-        self.command = command
-        self._parts = []
+        base = T(bg)
+        if kind == "accent":
+            self._n, self._h, self._p, border, fg = C("ACCENT"), C("ACCENT_HOVER"), C("ACCENT_PRESS"), C("ACCENT"), (WHITE, WHITE)
+        elif kind == "ghost":
+            self._n, self._h, self._p, border, fg = base, C("SURFACE"), C("HOVER"), base, C("DIM")
+        else:
+            self._n, self._h, self._p, border, fg = C("SURFACE"), C("LINE"), C("HOVER"), C("LINE"), C("FG")
+        self._fg, self._kind, self.command, self._parts = fg, kind, command, []
+        super().__init__(parent, fg_color=self._n, bg_color=base, border_width=0 if kind == "ghost" else 1,
+                         border_color=border, corner_radius=6)
+        row_pad = (max(1, pady - 1), max(1, pady - 1))
         if icon:
-            il = tk.Label(self, text=glyph(icon), font=ICON, bg=self._n, fg=icon_color or fg)
-            il.pack(side="left", padx=(padx, 0 if text else padx), pady=pady)
+            il = ctk.CTkLabel(self, text=glyph(icon), font=cfont(ICON), text_color=T(icon_color) if icon_color else fg,
+                              fg_color="transparent", width=0, height=0)
+            il.pack(side="left", padx=(padx, 0 if text else padx), pady=row_pad)
             self._parts.append(il)
+        self.label = None
         if text:
-            tl = tk.Label(self, text=text, font=font or (UI_B if kind == "accent" else UI), bg=self._n, fg=fg)
-            tl.pack(side="left", padx=(6 if icon else padx, padx if not kbd else 4), pady=pady)
+            tl = ctk.CTkLabel(self, text=text, font=cfont(font or (UI_B if kind == "accent" else UI)), text_color=fg,
+                              fg_color="transparent", width=0, height=0)
+            tl.pack(side="left", padx=(6 if icon else padx, padx if not kbd else 4), pady=row_pad)
             self._parts.append(tl)
             self.label = tl
         if kbd:
-            kb, kf = (ACCENT_PRESS, "#dbe6ff") if kind == "accent" else (BG, DIM)
-            kl = tk.Label(self, text=kbd, font=MONO_XS, bg=kb, fg=kf, padx=4)
-            kl.pack(side="left", padx=(2, padx), pady=pady)
-            kl._keep_bg = True
+            kb, kf = (C("ACCENT_PRESS"), ("#dbe6ff", "#dbe6ff")) if kind == "accent" else (C("BG"), C("DIM"))
+            kl = ctk.CTkLabel(self, text=" " + kbd + " ", font=cfont(MONO_XS), fg_color=kb, text_color=kf,
+                              corner_radius=4, width=0, height=0)
+            kl.pack(side="left", padx=(2, padx), pady=row_pad)
             self._parts.append(kl)
         for w in [self] + self._parts:
-            w.bind("<Enter>", self._enter)
-            w.bind("<Leave>", self._leave)
-            w.bind("<ButtonPress-1>", self._press)
-            w.bind("<ButtonRelease-1>", self._release)
+            w.bind("<Enter>", self._enter, add="+")
+            w.bind("<Leave>", self._leave, add="+")
+            w.bind("<ButtonPress-1>", self._press, add="+")
+            w.bind("<ButtonRelease-1>", self._release, add="+")
+        self._set_cursor("hand2")
+
+    def _set_cursor(self, cur):
+        for w in [self._canvas] + [getattr(p, "_label", p) for p in self._parts]:
+            try:
+                w.configure(cursor=cur)
+            except (tk.TclError, ValueError, AttributeError):
+                pass
 
     def _paint(self, c, fg=None):
-        self.configure(bg=c)
-        for w in self._parts:
-            if not getattr(w, "_keep_bg", False):
-                w.configure(bg=c)
-        if fg and self._kind == "ghost":
-            for w in self._parts:
-                if not getattr(w, "_keep_bg", False) and w is getattr(self, "label", None):
-                    w.configure(fg=fg)
+        self.configure(fg_color=c)
+        if fg and self._kind == "ghost" and self.label is not None:
+            self.label.configure(text_color=fg)
 
     def _enter(self, _e=None):
-        self._paint(self._h, FG)
+        self._paint(self._h, C("FG"))
 
     def _leave(self, _e=None):
         if not _inside(self):
@@ -441,6 +682,207 @@ class ToolButton(tk.Frame):
                 self.after_idle(self.command)
         else:
             self._paint(self._n, self._fg)
+
+
+class Toolbar(tk.Frame):
+    """Barra de botões que nunca corta: o que não cabe vai para o botão 'Mais'."""
+
+    def __init__(self, parent, bg=PANEL):
+        super().__init__(parent, bg=bg)
+        self._bg = bg
+        self.items: list[dict] = []   # {"w", "label", "command" | "menu", "sep"}
+        self.right: list = []
+        self.more = ToolButton(self, "Mais", "more", self._show_more, bg=bg)
+        self._hidden: list[dict] = []
+        self.bind("<Configure>", lambda e: self.after_idle(self.relayout))
+
+    def add(self, widget, label=None, command=None, menu=None, gap=6):
+        self.items.append({"w": widget, "label": label, "command": command, "menu": menu, "gap": gap})
+        return widget
+
+    def separator(self):
+        f = tk.Frame(self, bg=LINE, width=1, height=px(18))
+        self.items.append({"w": f, "sep": True, "gap": 8})
+        return f
+
+    def add_right(self, widget):
+        self.right.append(widget)
+        return widget
+
+    def relayout(self):
+        try:
+            width = self.winfo_width()
+        except tk.TclError:
+            return
+        if width < 50:
+            return
+        for it in self.items:
+            it["w"].pack_forget()
+        for w in self.right:
+            w.pack_forget()
+        self.more.pack_forget()
+        used = sum(w.winfo_reqwidth() + px(6) for w in self.right)
+        more_w = self.more.winfo_reqwidth() + px(8)
+        total = sum(it["w"].winfo_reqwidth() + px(it["gap"]) for it in self.items)
+        avail = width - used - (0 if total + used <= width else more_w)
+        shown, x = [], 0
+        for it in self.items:
+            need = it["w"].winfo_reqwidth() + px(it["gap"])
+            if x + need > avail:
+                break
+            shown.append(it)
+            x += need
+        while shown and shown[-1].get("sep"):
+            shown.pop()
+        self._hidden = [it for it in self.items if it not in shown and not it.get("sep")]
+        for it in shown:
+            it["w"].pack(side="left", padx=(0, px(it["gap"])))
+        for w in reversed(self.right):
+            w.pack(side="right", padx=(px(6), 0))
+        if self._hidden:
+            self.more.pack(side="right", padx=(px(6), 0))
+
+    def _show_more(self):
+        m = tk.Menu(self, tearoff=0)
+        for it in self._hidden:
+            if it.get("menu") is not None:
+                m.add_cascade(label=it["label"], menu=it["menu"])
+            elif it.get("command"):
+                m.add_command(label=it["label"], command=it["command"])
+        m.tk_popup(self.more.winfo_rootx(), self.more.winfo_rooty() + self.more.winfo_height() + 2)
+
+    def hidden_labels(self) -> list[str]:
+        return [it["label"] for it in self._hidden]
+
+
+class CommandPalette(tk.Toplevel):
+    """Paleta de comandos (Ctrl+Shift+P): busca única por todas as ações e personagens."""
+
+    def __init__(self, root, items: list[tuple[str, str, object]]):
+        super().__init__(root)
+        self.withdraw()
+        self.overrideredirect(True)
+        self.configure(bg=LINE)
+        self.items = items
+        box = tk.Frame(self, bg=PANEL)
+        box.pack(fill="both", expand=True, padx=1, pady=1)
+        self.var = tk.StringVar()
+        se = SearchEntry(box, self.var, "Digite um comando, personagem ou arquivo...  (Esc fecha)", font=UI)
+        se.pack(fill="x", padx=px(10), pady=(px(10), px(6)))
+        self.entry = se.entry
+        fr = tk.Frame(box, bg=PANEL)
+        fr.pack(fill="both", expand=True, padx=px(6), pady=(0, px(8)))
+        self.tv = ttk.Treeview(fr, columns=("hint",), show="tree", selectmode="browse", height=12)
+        self.tv.column("#0", stretch=True, width=px(420))
+        self.tv.column("hint", width=px(170), stretch=False, anchor="e")
+        self.tv.tag_configure("dim", foreground=DIM)
+        self.tv.pack(fill="both", expand=True)
+        self.var.trace_add("write", lambda *a: self._fill())
+        for w in (self.entry, self.tv):
+            w.bind("<Escape>", lambda e: self.close())
+            w.bind("<Return>", lambda e: self.run())
+            w.bind("<Down>", lambda e: self._move(1))
+            w.bind("<Up>", lambda e: self._move(-1))
+        self.tv.bind("<Double-1>", lambda e: self.run())
+        self.bind("<FocusOut>", lambda e: self.after(80, self._maybe_close))
+        self._fill()
+        W, H = px(640), px(400)
+        root.update_idletasks()
+        x = root.winfo_rootx() + (root.winfo_width() - W) // 2
+        y = root.winfo_rooty() + px(70)
+        self.geometry(f"{W}x{H}+{max(0, x)}+{max(0, y)}")
+        self.deiconify()
+        self.lift()
+        self.entry.focus_force()
+
+    @staticmethod
+    def _score(q: str, text: str) -> int | None:
+        """Busca por letras em ordem (fuzzy). Menor = melhor; None = não casa."""
+        t = text.lower()
+        if not q:
+            return 0
+        if q in t:
+            return t.index(q)
+        i, gaps = 0, 0
+        for ch in q:
+            j = t.find(ch, i)
+            if j < 0:
+                return None
+            gaps += j - i
+            i = j + 1
+        return 100 + gaps
+
+    def _fill(self):
+        q = self.var.get().lower().strip()
+        tv = self.tv
+        tv.delete(*tv.get_children())
+        scored = []
+        for n, (label, hint, fn) in enumerate(self.items):
+            sc = self._score(q, label + " " + hint)
+            if sc is not None:
+                scored.append((sc, n))
+        for sc, n in sorted(scored)[:200]:
+            label, hint, _ = self.items[n]
+            tv.insert("", "end", iid=str(n), text="  " + label, values=(hint,))
+        kids = tv.get_children()
+        if kids:
+            tv.selection_set(kids[0])
+            tv.see(kids[0])
+
+    def _move(self, d):
+        kids = self.tv.get_children()
+        if not kids:
+            return "break"
+        sel = self.tv.selection()
+        i = kids.index(sel[0]) + d if sel else 0
+        i = max(0, min(len(kids) - 1, i))
+        self.tv.selection_set(kids[i])
+        self.tv.see(kids[i])
+        return "break"
+
+    def run(self):
+        sel = self.tv.selection()
+        if not sel:
+            return "break"
+        fn = self.items[int(sel[0])][2]
+        self.close()
+        self.master.after(10, fn)
+        return "break"
+
+    def _maybe_close(self):
+        try:
+            f = self.focus_get()
+        except (tk.TclError, KeyError):
+            f = None
+        if f is None or not str(f).startswith(str(self)):
+            self.close()
+
+    def close(self):
+        try:
+            self.destroy()
+        except tk.TclError:
+            pass
+        return "break"
+
+
+def menu_commands(menu: tk.Menu, prefix: str) -> list[tuple[str, str, object]]:
+    """Todas as ações de um menu (e submenus) como itens da paleta."""
+    out = []
+    end = menu.index("end")
+    if end is None:
+        return out
+    for i in range(end + 1):
+        kind = menu.type(i)
+        if kind in ("separator", "tearoff"):
+            continue
+        label = menu.entrycget(i, "label")
+        if kind == "cascade":
+            sub = menu.nametowidget(menu.entrycget(i, "menu"))
+            out += menu_commands(sub, f"{prefix} \u203a {label}")
+            continue
+        acc = menu.entrycget(i, "accelerator")
+        out.append((f"{prefix} \u203a {label}", acc, lambda m=menu, i=i: m.invoke(i)))
+    return out
 
 
 class IconButton(tk.Label):
@@ -479,11 +921,17 @@ def hline(parent, color=LINE, **pack):
 
 class Banner(tk.Frame):
     """Faixa de aviso no topo do editor (amarela = atenção, verde = ok, azul = info)."""
-    KINDS = {"warn": (mix(BG, AMBER, .13), mix(BG, AMBER, .32), AMBER, BANNER_WARN_FG, "warn"),
-             "ok": (mix(BG, OK, .1), mix(BG, OK, .28), OK, OK_SOFT, "check"),
-             "info": (mix(BG, ACCENT, .12), mix(BG, ACCENT, .3), ACCENT, BANNER_INFO_FG, "info")}
+    @staticmethod
+    def _kinds():
+        return {"warn": (mix(BG, AMBER, .13), mix(BG, AMBER, .32), AMBER, BANNER_WARN_FG, "warn"),
+                "ok": (mix(BG, OK, .1), mix(BG, OK, .28), OK, OK_SOFT, "check"),
+                "info": (mix(BG, ACCENT, .12), mix(BG, ACCENT, .3), ACCENT, BANNER_INFO_FG, "info")}
+
+    KINDS: dict = {}
 
     def __init__(self, parent):
+        if not Banner.KINDS:
+            Banner.KINDS = Banner._kinds()
         super().__init__(parent, bg=self.KINDS["warn"][0])
         self.row = tk.Frame(self, bg=self["bg"])
         self.row.pack(fill="x")
@@ -578,7 +1026,6 @@ class Header(tk.Frame):
         self.menu_btns = []
         for label, menu in menus:
             b = ToolButton(row, text=label, kind="ghost", bg=PANEL, padx=7, pady=1, font=UI_S)
-            b.configure(highlightthickness=0)
             b.command = lambda b=b, m=menu: m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height() + 2)
             b.pack(side="left", padx=1)
             self.menu_btns.append(b)
@@ -734,7 +1181,7 @@ class CardGrid(tk.Frame):
         self._layout(self.winfo_width())
 
     def _layout(self, width):
-        cols = max(1, min(len(self.items) or 1, (max(width, 1) + self.gap) // (self.minw + self.gap)))
+        cols = max(1, min(len(self.items) or 1, (max(width, 1) + px(self.gap)) // (px(self.minw) + px(self.gap))))
         if cols == self._cols:
             return
         for c in range(max(self._cols, cols, 12)):

@@ -57,7 +57,7 @@ class EditorTab(ttk.Frame):
 
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True)
-        self.gutter = tk.Canvas(body, width=66, bg=BG, highlightthickness=0)
+        self.gutter = tk.Canvas(body, width=th.px(66), bg=BG, highlightthickness=0)
         self.gutter.pack(side="left", fill="y")
         tk.Frame(body, width=1, bg=th.mix(BG, LINE, .6)).pack(side="left", fill="y")
         self.text = tk.Text(body, wrap="none", undo=True, maxundo=-1, bg=BG, fg=FG, insertbackground=FG,
@@ -122,7 +122,7 @@ class EditorTab(ttk.Frame):
         for seq, fn in (("<Control-s>", app.save_current), ("<Control-S>", app.save_all), ("<Control-o>", app.open_dialog),
                         ("<Control-t>", app.copy_power), ("<Control-k>", self.edit_color), ("<Control-K>", app.colors_dialog),
                         ("<Control-f>", self.show_find), ("<Control-h>", lambda: self.show_find(replace=True)),
-                        ("<F12>", self.goto_definition), ("<F1>", self.explain),
+                        ("<F12>", self.goto_definition), ("<F1>", self.explain), ("<Control-P>", app.open_palette),
                         ("<Control-w>", lambda: self.after_idle(lambda: app.close_tab(self))),
                         ("<Control-F4>", lambda: self.after_idle(lambda: app.close_tab(self)))):
             t.bind(seq, lambda e, f=fn: (f(), "break")[1])
@@ -304,19 +304,19 @@ class EditorTab(ttk.Frame):
             kind = perr.get(ln)
             color = th.ERR_SOFT if kind == "erro" else th.WARN if kind else FG if ln == cur else th.FAINT
             bold = kind or ln == cur
-            g.create_text(44, y + h // 2, anchor="e", text=str(ln), fill=color, font=th.MONO_S + (("bold",) if bold else ()))
+            g.create_text(th.px(44), y + h // 2, anchor="e", text=str(ln), fill=color, font=th.MONO_S + (("bold",) if bold else ()))
             if ln == cur:
-                g.create_rectangle(0, y, 3, y + h, fill=ACCENT, outline="")
+                g.create_rectangle(0, y, th.px(3), y + h, fill=ACCENT, outline="")
             if ln in self.colors:
                 m = max(3, (h - 11) // 2)
-                g.create_rectangle(50, y + m, 61, y + h - m, fill=self.colors[ln], outline="#000000")
+                g.create_rectangle(th.px(50), y + m, th.px(61), y + h - m, fill=self.colors[ln], outline="#000000")
             idx = self.text.index(f"{ln + 1}.0")
             if int(idx.split(".")[0]) == ln:
                 break
 
     def _gutter_click(self, e):
         ln = int(self.text.index(f"@0,{e.y}").split(".")[0])
-        if ln in self.colors and e.x >= 46:
+        if ln in self.colors and e.x >= th.px(46):
             self.text.mark_set("insert", f"{ln}.0")
             self.edit_color()
 
@@ -746,14 +746,13 @@ class EditorTab(ttk.Frame):
 
 
 # ==================================================================== janela
-class App(tk.Tk):
+class App(th.ctk.CTk):
     def __init__(self, root_dir: str, settings: bool = True):
         super().__init__()
         self.title("MUA Studio")
-        extras.fit(self, 1500, 900)
-        self.minsize(1000, 600)
-        self.configure(bg=PANEL)
+        self.minsize(900, 560)
         setup_style(self)
+        self.after(0, lambda: self.state("zoomed"))
         self.proj = pj.Project(root_dir)
         self.actions: dict[str, tuple] = {}
         self._acts: dict = {}  # cada árvore tem o seu dicionário de ações
@@ -816,38 +815,44 @@ class App(tk.Tk):
         m_theme = m
 
         # cabeçalho escuro no lugar da barra de menus do Windows (que não aceita cores)
-        self.header = th.Header(self, [("Arquivo", m_file), ("Editar", m_edit), ("Ferramentas", m_tools), ("Idioma", m_lang),
-                                       ("Tema", m_theme)], on_backup=self.open_backups)
+        self.header_menus = [("Arquivo", m_file), ("Editar", m_edit), ("Ferramentas", m_tools), ("Idioma", m_lang),
+                             ("Tema", m_theme)]
+        self.header = th.Header(self, self.header_menus, on_backup=self.open_backups)
         self.header.pack(fill="x")
 
         bar = tk.Frame(self, bg=PANEL)
         bar.pack(fill="x")
-        row = tk.Frame(bar, bg=PANEL)
-        row.pack(fill="x", padx=10, pady=7)
+        tb = th.Toolbar(bar, bg=PANEL)
+        tb.pack(fill="x", padx=th.px(10), pady=th.px(7))
+        self.toolbar = tb
         TB = th.ToolButton
-
-        def sep():
-            tk.Frame(row, bg=LINE, width=1, height=18).pack(side="left", padx=8)
-
-        TB(row, "Salvar e compilar", "bolt", self.save_current, kbd="Ctrl+S", kind="accent").pack(side="left")
-        sep()
-        TB(row, "Copiar poder...", "swap", self.copy_power, kbd="Ctrl+T", icon_color=ACCENT).pack(side="left", padx=(0, 6))
-        TB(row, "Cores do arquivo", "palette", self.colors_dialog, icon_color=th.PINK).pack(side="left", padx=(0, 6))
-        TB(row, "Ficha do personagem", "card", self.open_sheet, icon_color=th.AMBER).pack(side="left", padx=(0, 6))
-        TB(row, "Explicar poder", "bulb", self.explain, kbd="F1", icon_color=th.PURPLE).pack(side="left")
-        sep()
+        tb.add(TB(tb, "Salvar e compilar", "bolt", self.save_current, kbd="Ctrl+S", kind="accent"),
+               "Salvar e compilar", self.save_current, gap=0)
+        tb.separator()
+        tb.add(TB(tb, "Copiar poder...", "swap", self.copy_power, kbd="Ctrl+T", icon_color=ACCENT),
+               "Copiar poder...", self.copy_power)
+        tb.add(TB(tb, "Cores do arquivo", "palette", self.colors_dialog, icon_color=th.PINK),
+               "Cores do arquivo", self.colors_dialog)
+        tb.add(TB(tb, "Ficha do personagem", "card", self.open_sheet, icon_color=th.AMBER),
+               "Ficha do personagem", self.open_sheet)
+        tb.add(TB(tb, "Explicar poder", "bulb", self.explain, kbd="F1", icon_color=th.PURPLE),
+               "Explicar poder", self.explain, gap=0)
+        tb.separator()
         mm = tk.Menu(self, tearoff=0)
         mm.add_command(label="Herostat (heróis do jogo)", command=self.open_herostat)
         mm.add_command(label="NPCStat (NPCs e vilões)", command=self.open_npcstat)
         mm.add_separator()
         mm.add_command(label="Converter poder de herói para NPC...", command=self.npc_power)
-        hb = TB(row, "Herostat / NPCStat  ▾", "sliders", None, icon_color=th.SYN_KEY)
+        self.stat_menu = mm
+        hb = TB(tb, "Herostat / NPCStat  \u25be", "sliders", None, icon_color=th.SYN_KEY)
         hb.command = lambda: mm.tk_popup(hb.winfo_rootx(), hb.winfo_rooty() + hb.winfo_height() + 2)
-        hb.pack(side="left", padx=(0, 6))
-        TB(row, "Mixer de animações", "film", self.anim_mixer, icon_color=th.OK).pack(side="left", padx=(0, 6))
-        TB(row, "Editor de áudio", "list", self.audio_editor, icon_color=th.PINK).pack(side="left", padx=(0, 6))
-        TB(row, "Efeitos e models", "package", self.copy_resources, icon_color=th.SYN_PATH).pack(side="left")
-        TB(row, "Localizar", "search", find, kbd="Ctrl+F", icon_color=DIM).pack(side="right")
+        tb.add(hb, "Herostat / NPCStat", menu=mm)
+        tb.add(TB(tb, "Mixer de animações", "film", self.anim_mixer, icon_color=th.OK), "Mixer de animações", self.anim_mixer)
+        tb.add(TB(tb, "Editor de áudio", "list", self.audio_editor, icon_color=th.PINK), "Editor de áudio", self.audio_editor)
+        tb.add(TB(tb, "Efeitos e models", "package", self.copy_resources, icon_color=th.SYN_PATH),
+               "Efeitos e models", self.copy_resources, gap=0)
+        tb.add_right(TB(tb, "Comandos", "search", self.open_palette, kbd="Ctrl+Shift+P", icon_color=ACCENT))
+        tb.add_right(TB(tb, "Localizar", None, find, kbd="Ctrl+F"))
         th.hline(bar)
 
         self.status_var = tk.StringVar()
@@ -942,9 +947,9 @@ class App(tk.Tk):
         self.prob_title = prow
         th.hline(pf)
         self.ptree = self._tree(pf, columns=("ln", "tipo", "msg"), show="", height=6)
-        self.ptree.column("ln", width=74, stretch=False, anchor="e")
-        self.ptree.column("tipo", width=84, stretch=False, anchor="center")
-        self.ptree.column("msg", width=400, stretch=True)
+        self.ptree.column("ln", width=th.px(74), stretch=False, anchor="e")
+        self.ptree.column("tipo", width=th.px(84), stretch=False, anchor="center")
+        self.ptree.column("msg", width=th.px(400), stretch=True)
         self.ptree.tag_configure("erro", foreground=th.ERR_SOFT, background=th.mix(PANEL, th.ERR, .06))
         self.ptree.tag_configure("aviso", foreground=th.WARN_SOFT)
         self.ptree.bind("<<TreeviewSelect>>", self._prob_select)
@@ -959,7 +964,7 @@ class App(tk.Tk):
         self.outline_filter.trace_add("write", lambda *a: self.fill_outline())
         th.hline(right)
         self.otree = self._tree(right, columns=("ln",))
-        self.otree.column("ln", width=46, stretch=False, anchor="e")
+        self.otree.column("ln", width=th.px(46), stretch=False, anchor="e")
         for tag, color in (("FightMove", FG), ("talent", th.SYN_KEY), ("other", DIM)):
             self.otree.tag_configure(tag, foreground=color)
         self.otree.configure(selectmode="extended")
@@ -973,8 +978,8 @@ class App(tk.Tk):
             w = main.winfo_width()
             if w < 700 and tries < 80:
                 return self.after(50, lambda: place_sashes(tries + 1))
-            main.sashpos(0, 365)
-            main.sashpos(1, max(700, w - 290))
+            main.sashpos(0, th.px(365))
+            main.sashpos(1, max(w // 2, w - th.px(290)))
             if tries >= 0 and main.sashpos(0) < 100:  # o Tk ainda não aplicou: tenta de novo
                 self.after(100, lambda: place_sashes(-1 if tries > 70 else tries + 1))
 
@@ -983,7 +988,7 @@ class App(tk.Tk):
         for seq, fn in (("<Control-s>", self.save_current), ("<Control-S>", self.save_all), ("<Control-o>", self.open_dialog),
                         ("<Control-w>", self.close_current), ("<Control-t>", self.copy_power), ("<F12>", self.goto_def),
                         ("<Control-k>", self.edit_color), ("<Control-K>", self.colors_dialog),
-                        ("<F1>", self.explain),
+                        ("<F1>", self.explain), ("<Control-P>", self.open_palette),
                         ("<Control-f>", find),
                         ("<Control-h>", lambda: self.current() and self.current().show_find(replace=True))):
             self.bind(seq, lambda e, f=fn: (f(), "break")[1])
@@ -1040,8 +1045,8 @@ class App(tk.Tk):
         sb.pack(side="right", fill="y")
         tv.pack(side="left", fill="both", expand=True, padx=(4, 0), pady=(4, 0))
         if "info" in kw.get("columns", ()):
-            tv.column("#0", stretch=True, width=190)
-            tv.column("info", width=118, stretch=False, anchor="e")
+            tv.column("#0", stretch=True, width=th.px(190))
+            tv.column("info", width=th.px(118), stretch=False, anchor="e")
         # cores por tipo de item (árvore de personagens e de arquivos)
         for tag, opts in (("char", {"foreground": FG}),("proj", {"foreground": th.STRONG, "font": th.UI_B}),
                           ("sheet", {"foreground": th.SHEET_FG}), ("power", {"foreground": th.SYN_KEY}),
@@ -1821,23 +1826,38 @@ class App(tk.Tk):
         self.lang_var.set(i18n.current())
 
     def set_theme(self, mode: str):
-        """Grava o tema (claro/escuro) e oferece reiniciar: as cores são montadas na abertura."""
-        if mode == th.read_mode():
-            return
+        """Troca claro/escuro na hora (sem reiniciar) e grava a escolha."""
         th.save_mode(mode)
-        name = dict(th.MODES)[mode]
-        if messagebox.askyesno("Tema", f"Tema alterado para {name}.\n\nO MUA Studio precisa ser reiniciado para aplicar. "
-                               "Reiniciar agora?", parent=self):
-            import subprocess
-            self.quit_app()  # pergunta dos arquivos não salvos; se cancelar, não reinicia
-            try:
-                alive = bool(self.winfo_exists())
-            except tk.TclError:
-                alive = False
-            if not alive:
-                subprocess.Popen([sys.executable] + sys.argv, cwd=os.path.dirname(os.path.abspath(__file__)))
-        else:
-            self.status(f"Tema alterado para {name}. Reinicie o MUA Studio para aplicar.")
+        self.theme_var.set(mode)
+        if not th.switch_mode(self, mode):
+            return
+        for tab in self.editors():
+            tab.draw_gutter()
+        self.fill_outline()
+        self.status(f"Tema: {dict(th.MODES)[mode]}")
+
+    # ---- paleta de comandos ----------------------------------------------------------------------
+    def palette_items(self) -> list[tuple[str, str, object]]:
+        items = []
+        for label, menu in self.header_menus:
+            items += th.menu_commands(menu, label)
+        items += th.menu_commands(self.stat_menu, "Herostat / NPCStat")
+        items += [("Ferramentas \u203a Editor de áudio", "", self.audio_editor),
+                  ("Ferramentas \u203a Efeitos e models", "", self.copy_resources),
+                  ("Ficha do personagem atual", "", self.open_sheet),
+                  ("Explicar poder", "F1", self.explain)]
+        for t in self.tabs.tabs():
+            text = self.tabs.tab(t, "text")
+            items.append((f"Ir para a aba: {text}", "aba aberta", lambda t=t: self.tabs.select(t)))
+        for c in self.all_characters():
+            where = "herói" if c.proj is self.proj else c.proj.label
+            items.append((f"Ficha: {c.display}  ({c.name})", where, lambda c=c: self.open_sheet(c)))
+            if c.powerstyle_path:
+                items.append((f"Powerstyle: {c.display}", where, lambda c=c: self.open_file(c.powerstyle_path)))
+        return items
+
+    def open_palette(self):
+        th.CommandPalette(self, self.palette_items())
 
     def goto_def(self):
         tab = self.current()

@@ -1,6 +1,6 @@
 @echo off
 rem Verifica (e se precisar instala) o que o MUA Studio exige: Python 3.10+ com tkinter.
-rem O app nao usa nenhum pacote pip; so a biblioteca padrao do Python.
+rem O app nao precisa de pip: o CustomTkinter ja vem embutido em vendorpylibs.
 setlocal
 set "PY="
 where python >nul 2>nul && set "PY=python"
